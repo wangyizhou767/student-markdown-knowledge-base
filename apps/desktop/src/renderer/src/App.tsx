@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import type { FileTreeNode, NoteDocument, VaultSnapshot } from '../../shared/contracts'
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'error'
@@ -37,6 +37,9 @@ export default function App() {
   const [content, setContent] = useState('')
   const [saveState, setSaveState] = useState<SaveState>('clean')
   const [error, setError] = useState('')
+  const [newNoteOpen, setNewNoteOpen] = useState(false)
+  const [newNoteTitle, setNewNoteTitle] = useState('')
+  const [creatingNote, setCreatingNote] = useState(false)
 
   useEffect(() => {
     window.pkm.reopenRecentVault().then(setVault).catch(() => undefined)
@@ -88,18 +91,28 @@ export default function App() {
     }
   }
 
-  async function createNote() {
-    const title = window.prompt('新笔记名称', '未命名笔记')
-    if (title === null) return
+  function beginCreateNote() {
+    setNewNoteTitle('')
+    setNewNoteOpen(true)
+    setError('')
+  }
+
+  async function createNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (creatingNote) return
+    setCreatingNote(true)
     try {
-      const created = await window.pkm.createNote({ title })
+      const created = await window.pkm.createNote({ title: newNoteTitle })
       setVault(await window.pkm.refreshTree())
       setNote(created)
       setContent(created.content)
       setSaveState('clean')
       setError('')
+      setNewNoteOpen(false)
     } catch (caught) {
       setError(messageFrom(caught))
+    } finally {
+      setCreatingNote(false)
     }
   }
 
@@ -139,7 +152,7 @@ export default function App() {
         <div className="top-actions">
           <button onClick={chooseVault}>切换知识库</button>
           <button onClick={refreshTree}>刷新</button>
-          <button className="accent-button" onClick={createNote}>+  新建笔记</button>
+          <button className="accent-button" onClick={beginCreateNote}>+  新建笔记</button>
         </div>
       </header>
 
@@ -178,6 +191,33 @@ export default function App() {
           <section className="blank-state"><div><span>↖</span><h2>选择一篇笔记</h2><p>从左侧打开笔记，或新建一篇开始记录。</p></div></section>
         )}
       </main>
+
+      {newNoteOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !creatingNote) setNewNoteOpen(false)
+        }}>
+          <form className="new-note-dialog" role="dialog" aria-modal="true" aria-labelledby="new-note-title" onSubmit={createNote}>
+            <p className="eyebrow">新建 MARKDOWN 笔记</p>
+            <h2 id="new-note-title">给这篇笔记起个名字</h2>
+            <p>文件会直接保存在当前知识库中，不用输入 <code>.md</code> 后缀。</p>
+            <label htmlFor="note-name">笔记名称</label>
+            <input
+              id="note-name"
+              autoFocus
+              maxLength={120}
+              placeholder="例如：软件工程第一课"
+              value={newNoteTitle}
+              onChange={(event) => setNewNoteTitle(event.target.value)}
+            />
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setNewNoteOpen(false)} disabled={creatingNote}>取消</button>
+              <button className="accent-button" type="submit" disabled={creatingNote}>
+                {creatingNote ? '正在创建…' : '创建并打开'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }

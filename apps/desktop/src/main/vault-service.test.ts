@@ -35,4 +35,17 @@ describe('VaultService', () => {
     await expect(service.saveNote('note.md', 'local change', opened.version)).rejects.toMatchObject({ code: 'E_VERSION_CONFLICT' })
     expect(await readFile(notePath, 'utf8')).toBe('external change')
   })
+
+  it('创建笔记并在重名时自动追加序号', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pkm-vault-'))
+    const service = new VaultService()
+    await service.open(root)
+
+    const first = await service.createNote('软件工程')
+    const second = await service.createNote('软件工程')
+
+    expect(first.relativePath).toBe('软件工程.md')
+    expect(second.relativePath).toBe('软件工程 2.md')
+    expect(await readFile(join(root, first.relativePath), 'utf8')).toContain('# 软件工程')
+  })
 })

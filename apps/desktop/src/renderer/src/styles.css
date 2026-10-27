@@ -79,6 +79,17 @@ textarea { width: 100%; flex: 1; resize: none; border: 0; outline: 0; padding: 2
 .blank-state h2 { margin: 12px 0 6px; color: #414943; font: 600 24px Georgia, "Songti SC", serif; }
 .error-banner { margin-top: 22px; padding: 10px 13px; color: #8b3026; background: #fae8e5; border: 1px solid #efc8c2; border-radius: 9px; font-size: 13px; }
 .error-banner.inline { margin: 0; border-width: 0 0 1px; border-radius: 0; display: flex; justify-content: space-between; align-items: center; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(26, 32, 29, .42); backdrop-filter: blur(3px); }
+.new-note-dialog { width: min(460px, 100%); padding: 30px; border: 1px solid rgba(255, 255, 255, .72); border-radius: 18px; background: #faf9f6; box-shadow: 0 26px 80px rgba(20, 27, 23, .28); }
+.new-note-dialog h2 { margin: 8px 0 8px; color: #263d33; font: 600 28px/1.25 Georgia, "Songti SC", serif; }
+.new-note-dialog > p:not(.eyebrow) { margin: 0 0 22px; color: #707873; font-size: 14px; line-height: 1.7; }
+.new-note-dialog label { display: block; margin-bottom: 8px; color: #3b4640; font-size: 13px; font-weight: 700; }
+.new-note-dialog input { width: 100%; border: 1px solid #cbcfc9; border-radius: 10px; outline: none; padding: 12px 13px; color: #29332e; background: #fff; }
+.new-note-dialog input:focus { border-color: #3a765e; box-shadow: 0 0 0 3px rgba(58, 118, 94, .13); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.dialog-actions button { border: 1px solid #d1d3ce; border-radius: 9px; padding: 10px 16px; color: #48514c; background: #fff; }
+.dialog-actions .accent-button { border-color: #285b48; color: #fff; background: #285b48; }
+.dialog-actions button:disabled { cursor: wait; opacity: .58; }
 
 @media (max-width: 1100px) {
   .workspace { grid-template-columns: 220px 1fr; }
