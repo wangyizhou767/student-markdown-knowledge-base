@@ -1,0 +1,27 @@
+name: 功能任务
+description: 记录一个具有可见结果的功能任务
+title: "[Feature] "
+labels: ["feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目标
+      description: 说明用户能够完成什么。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收步骤
+      description: 列出可重复执行的操作和预期结果。
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 可见结果
+      description: 代码、测试、截图、构建产物或文档的位置。
+    validations:
+      required: true
+

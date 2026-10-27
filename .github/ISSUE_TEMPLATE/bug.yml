@@ -1,0 +1,35 @@
+name: 缺陷
+description: 记录可复现的程序缺陷
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: Windows 版本、构建版本和知识库样本。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果和实际结果
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重程度
+      options:
+        - 阻塞 数据丢失或无法启动
+        - 高 核心流程不可用
+        - 中 有替代路径
+        - 低 界面或文字问题
+    validations:
+      required: true
