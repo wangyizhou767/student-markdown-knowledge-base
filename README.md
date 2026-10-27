@@ -41,3 +41,20 @@ student-markdown-knowledge-base/
 
 详细安排见 `docs/project/`。
 
+## 本地开发
+
+需要 Node.js 22 或更高版本，并建议使用 pnpm：
+
+```powershell
+cd apps/desktop
+pnpm install
+pnpm dev
+```
+
+常用验证命令：
+
+```powershell
+pnpm test
+pnpm build
+```
+
