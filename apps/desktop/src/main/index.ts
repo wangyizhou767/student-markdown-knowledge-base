@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { IPC, type CreateNoteInput, type SaveNoteInput } from '../shared/contracts'
@@ -6,6 +6,68 @@ import { VaultService } from './vault-service'
 
 const vault = new VaultService()
 let mainWindow: BrowserWindow | null = null
+
+function setupApplicationMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: '文件',
+      submenu: [
+        { label: '退出', accelerator: 'Alt+F4', role: 'quit' }
+      ]
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { label: '撤销', accelerator: 'Ctrl+Z', role: 'undo' },
+        { label: '重做', accelerator: 'Ctrl+Y', role: 'redo' },
+        { type: 'separator' },
+        { label: '剪切', accelerator: 'Ctrl+X', role: 'cut' },
+        { label: '复制', accelerator: 'Ctrl+C', role: 'copy' },
+        { label: '粘贴', accelerator: 'Ctrl+V', role: 'paste' },
+        { type: 'separator' },
+        { label: '全选', accelerator: 'Ctrl+A', role: 'selectAll' }
+      ]
+    },
+    {
+      label: '视图',
+      submenu: [
+        { label: '重新加载', accelerator: 'Ctrl+R', role: 'reload' },
+        { type: 'separator' },
+        { label: '放大', accelerator: 'Ctrl+=', role: 'zoomIn' },
+        { label: '缩小', accelerator: 'Ctrl+-', role: 'zoomOut' },
+        { label: '恢复默认缩放', accelerator: 'Ctrl+0', role: 'resetZoom' },
+        { type: 'separator' },
+        { label: '切换全屏', accelerator: 'F11', role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: '窗口',
+      submenu: [
+        { label: '最小化', role: 'minimize' },
+        { label: '关闭窗口', accelerator: 'Ctrl+W', role: 'close' }
+      ]
+    },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '关于学生 Markdown 知识库',
+          click: () => {
+            void dialog.showMessageBox({
+              type: 'info',
+              title: '关于',
+              message: '学生 Markdown 知识库',
+              detail: '版本 0.1.0\n本地优先的 Markdown 笔记与知识管理工具。',
+              buttons: ['确定']
+            })
+          }
+        }
+      ]
+    }
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -81,6 +143,7 @@ function registerIpc(): void {
 
 app.whenReady().then(() => {
   registerIpc()
+  setupApplicationMenu()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
