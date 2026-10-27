@@ -5,6 +5,11 @@ import type { FileTreeNode, NoteDocument, VaultSnapshot } from '../shared/contra
 
 const INVALID_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 const INVALID_FILE_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000
+
+export function toBeijingIso(date = new Date()): string {
+  return new Date(date.getTime() + BEIJING_OFFSET_MS).toISOString().replace('Z', '+08:00')
+}
 
 export class VaultError extends Error {
   constructor(
@@ -70,7 +75,7 @@ export class VaultService {
       suffix += 1
     }
 
-    const now = new Date().toISOString()
+    const now = toBeijingIso()
     const content = `---\nid: ${randomUUID()}\ntitle: ${normalized}\ntags: []\ncreated: ${now}\nupdated: ${now}\n---\n\n# ${normalized}\n`
     await writeFile(join(root, candidate), content, { encoding: 'utf8', flag: 'wx' })
     return this.toDocument(candidate, content)
@@ -87,7 +92,7 @@ export class VaultService {
         schemaVersion: 1,
         vaultId: randomUUID(),
         displayName: basename(root),
-        createdAt: new Date().toISOString(),
+        createdAt: toBeijingIso(),
         appVersionCreated: '0.1.0'
       }
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })

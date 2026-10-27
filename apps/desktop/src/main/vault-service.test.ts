@@ -2,9 +2,13 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { VaultService } from './vault-service'
+import { toBeijingIso, VaultService } from './vault-service'
 
 describe('VaultService', () => {
+  it('使用带 +08:00 偏移的北京时间', () => {
+    expect(toBeijingIso(new Date('2026-10-27T07:52:09.968Z'))).toBe('2026-10-27T15:52:09.968+08:00')
+  })
+
   it('扫描 Markdown 文件并忽略 .pkm 目录', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pkm-vault-'))
     await writeFile(join(root, '课堂笔记.md'), '# 课堂笔记', 'utf8')
@@ -46,6 +50,9 @@ describe('VaultService', () => {
 
     expect(first.relativePath).toBe('软件工程.md')
     expect(second.relativePath).toBe('软件工程 2.md')
-    expect(await readFile(join(root, first.relativePath), 'utf8')).toContain('# 软件工程')
+    const savedContent = await readFile(join(root, first.relativePath), 'utf8')
+    expect(savedContent).toContain('# 软件工程')
+    expect(savedContent).toMatch(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00/)
+    expect(savedContent).toMatch(/updated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00/)
   })
 })
