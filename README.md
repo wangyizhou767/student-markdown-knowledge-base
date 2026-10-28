@@ -40,6 +40,7 @@ student-markdown-knowledge-base/
 ├─ apps/desktop/              Electron 桌面程序
 ├─ docs/baseline/             已确认的需求与架构设计
 ├─ docs/project/              范围、分工、排期和测试材料
+├─ docs/acceptance-vault/     可复制后用于人工验收的示例知识库
 ├─ docs/user-feedback/        真实用户试用记录
 ├─ .github/ISSUE_TEMPLATE/    GitHub 任务和缺陷模板
 └─ README.md
@@ -72,6 +73,8 @@ pnpm dev
 pnpm test
 pnpm build
 ```
+
+Pull Request 会自动执行类型检查、测试和构建。人工测试可复制 `docs/acceptance-vault/` 到仓库外，再使用软件打开该副本。
 
 团队成员不要直接在 `main` 上开发。请从最新 `main` 创建自己的任务分支，完成后推送分支并发起 Pull Request；完整步骤见[协作说明](CONTRIBUTING.md)。
 
