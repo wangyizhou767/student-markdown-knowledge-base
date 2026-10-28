@@ -11,6 +11,27 @@ export function toBeijingIso(date = new Date()): string {
   return new Date(date.getTime() + BEIJING_OFFSET_MS).toISOString().replace('Z', '+08:00')
 }
 
+export function updateNoteTimestamp(content: string, date = new Date()): string {
+  const hasBom = content.startsWith('\uFEFF')
+  const source = hasBom ? content.slice(1) : content
+  const bom = hasBom ? '\uFEFF' : ''
+  const lineEnding = source.includes('\r\n') ? '\r\n' : '\n'
+  const updatedLine = `updated: ${toBeijingIso(date)}`
+  const frontmatter = /^(---[ \t]*\r?\n)([\s\S]*?)(^---[ \t]*(?:\r?\n|$))/m.exec(source)
+
+  if (!frontmatter || frontmatter.index !== 0) {
+    return `${bom}---${lineEnding}${updatedLine}${lineEnding}---${lineEnding}${lineEnding}${source}`
+  }
+
+  const header = frontmatter[2]
+  const updatedPattern = /^updated[ \t]*:.*(?:\r?\n|$)/m
+  const nextHeader = updatedPattern.test(header)
+    ? header.replace(updatedPattern, `${updatedLine}${lineEnding}`)
+    : `${header}${updatedLine}${lineEnding}`
+
+  return `${bom}${frontmatter[1]}${nextHeader}${frontmatter[3]}${source.slice(frontmatter[0].length)}`
+}
+
 export class VaultError extends Error {
   constructor(
     public readonly code: string,
@@ -57,10 +78,11 @@ export class VaultService {
       throw new VaultError('E_VERSION_CONFLICT', '文件已被其他程序修改，为避免覆盖，本次保存已停止。')
     }
 
+    const contentWithUpdatedTimestamp = updateNoteTimestamp(content)
     const tempPath = `${fullPath}.pkm-${randomUUID()}.tmp`
-    await writeFile(tempPath, content, 'utf8')
+    await writeFile(tempPath, contentWithUpdatedTimestamp, 'utf8')
     await rename(tempPath, fullPath)
-    return this.toDocument(relativePath, content)
+    return this.toDocument(relativePath, contentWithUpdatedTimestamp)
   }
 
   async createNote(title: string): Promise<NoteDocument> {
