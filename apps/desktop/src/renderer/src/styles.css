@@ -43,6 +43,13 @@ button { cursor: pointer; }
 .workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: 260px 1fr; }
 .sidebar { overflow: auto; padding: 22px 14px; border-right: 1px solid #dcd9d1; background: #eceae4; }
 .section-label { padding: 0 10px 12px; }
+.note-search { display: flex; align-items: center; gap: 6px; margin: 0 4px 14px; }
+.note-search input { min-width: 0; width: 100%; padding: 9px 10px; border: 1px solid #d2d4cd; border-radius: 8px; outline: none; color: #29332e; background: #faf9f6; font: inherit; font-size: 13px; }
+.note-search input:focus { border-color: #3a765e; box-shadow: 0 0 0 3px rgba(58, 118, 94, .12); }
+.note-search input::-webkit-search-cancel-button { cursor: pointer; }
+.clear-search { flex: 0 0 auto; padding: 8px 9px; border: 1px solid #d7d6d0; border-radius: 8px; color: #48504b; background: #fff; font-size: 12px; }
+.clear-search:hover { background: #f7f5f0; }
+.search-empty { padding-top: 8px; }
 .tree-list { list-style: none; margin: 0; padding: 0; }
 .tree-list .tree-list { margin-left: 14px; }
 .tree-list summary, .note-row { width: 100%; display: flex; gap: 8px; align-items: center; border: 0; border-radius: 8px; padding: 8px 10px; color: #48504b; background: transparent; text-align: left; }
