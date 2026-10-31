@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileTreeNode, NoteDocument, SearchNoteMatch, VaultSnapshot } from '../../shared/contracts'
+import type { FileTreeNode, NoteDocument, SearchNoteMatch, TrashNote, VaultSnapshot } from '../../shared/contracts'
 import { findSearchTextRanges, normalizeSearchText } from '../../shared/search'
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'error'
@@ -35,6 +35,33 @@ function messageFrom(error: unknown): string {
 
 function countNotes(nodes: FileTreeNode[]): number {
   return nodes.reduce((total, node) => total + (node.type === 'note' ? 1 : countNotes(node.children ?? [])), 0)
+}
+
+function savedTimeFromContent(content: string): string {
+  const value = /^updated[ \t]*:[ \t]*(.+)$/m.exec(content)?.[1]?.trim()
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(date)
+}
+
+function formatTrashTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).format(date)
 }
 
 function HighlightedSnippet({ text, keyword }: { text: string; keyword: string }) {
@@ -103,7 +130,13 @@ export default function App() {
   const [contentMatches, setContentMatches] = useState<SearchNoteMatch[]>([])
   const [searching, setSearching] = useState(false)
   const [managingNote, setManagingNote] = useState(false)
+  const [lastSavedTime, setLastSavedTime] = useState('')
+  const [trashOpen, setTrashOpen] = useState(false)
+  const [trashItems, setTrashItems] = useState<TrashNote[]>([])
+  const [trashLoading, setTrashLoading] = useState(false)
+  const [restoringTrashId, setRestoringTrashId] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     window.pkm.reopenRecentVault().then(setVault).catch(() => undefined)
@@ -159,6 +192,15 @@ export default function App() {
       } else if (key === 'n') {
         event.preventDefault()
         beginCreateNote()
+      } else if (document.activeElement === editorRef.current && key === 'b') {
+        event.preventDefault()
+        wrapSelection('**', '**', '粗体文字')
+      } else if (document.activeElement === editorRef.current && key === 'i') {
+        event.preventDefault()
+        wrapSelection('_', '_', '斜体文字')
+      } else if (document.activeElement === editorRef.current && key === 'k') {
+        event.preventDefault()
+        wrapSelection('[', '](https://)', '链接文字')
       }
     }
 
@@ -207,6 +249,7 @@ export default function App() {
         setNote(null)
         setContent('')
         setSearchKeyword('')
+        setLastSavedTime('')
       }
     } catch (caught) {
       setError(messageFrom(caught))
@@ -229,6 +272,7 @@ export default function App() {
       setNote(opened)
       setContent(opened.content)
       setSaveState('clean')
+      setLastSavedTime(savedTimeFromContent(opened.content))
       setError('')
     } catch (caught) {
       setError(messageFrom(caught))
@@ -252,6 +296,7 @@ export default function App() {
       setContent(created.content)
       setSearchKeyword('')
       setSaveState('clean')
+      setLastSavedTime(savedTimeFromContent(created.content))
       setError('')
       setNewNoteOpen(false)
     } catch (caught) {
@@ -270,6 +315,7 @@ export default function App() {
       setNote(saved)
       setContent(saved.content)
       setSaveState('clean')
+      setLastSavedTime(savedTimeFromContent(saved.content))
       setError('')
       return true
     } catch (caught) {
@@ -292,6 +338,7 @@ export default function App() {
       setNote(renamed)
       setContent(renamed.content)
       setSaveState('clean')
+      setLastSavedTime(savedTimeFromContent(renamed.content))
       setError('')
     } catch (caught) {
       setError(messageFrom(caught))
@@ -313,11 +360,78 @@ export default function App() {
       setNote(null)
       setContent('')
       setSaveState('clean')
+      setLastSavedTime('')
       setError('')
     } catch (caught) {
       setError(messageFrom(caught))
     } finally {
       setManagingNote(false)
+    }
+  }
+
+  function wrapSelection(prefix: string, suffix: string, placeholder: string) {
+    const editor = editorRef.current
+    if (!note || !editor) return
+    const start = editor.selectionStart
+    const end = editor.selectionEnd
+    const selected = content.slice(start, end) || placeholder
+    const replacement = `${prefix}${selected}${suffix}`
+    setContent(`${content.slice(0, start)}${replacement}${content.slice(end)}`)
+    setSaveState('dirty')
+    window.requestAnimationFrame(() => {
+      editor.focus()
+      editor.setSelectionRange(start + prefix.length, start + prefix.length + selected.length)
+    })
+  }
+
+  function prefixSelectedLines(prefix: string) {
+    const editor = editorRef.current
+    if (!note || !editor) return
+    const selectionStart = editor.selectionStart
+    const selectionEnd = editor.selectionEnd
+    const blockStart = content.lastIndexOf('\n', Math.max(0, selectionStart - 1)) + 1
+    const nextLineBreak = content.indexOf('\n', selectionEnd)
+    const blockEnd = nextLineBreak < 0 ? content.length : nextLineBreak
+    const block = content.slice(blockStart, blockEnd)
+    const replacement = block.split('\n').map((line) => `${prefix}${line}`).join('\n')
+    setContent(`${content.slice(0, blockStart)}${replacement}${content.slice(blockEnd)}`)
+    setSaveState('dirty')
+    window.requestAnimationFrame(() => {
+      editor.focus()
+      editor.setSelectionRange(blockStart, blockStart + replacement.length)
+    })
+  }
+
+  async function openTrash() {
+    setTrashOpen(true)
+    setTrashLoading(true)
+    setError('')
+    try {
+      setTrashItems(await window.pkm.listTrash())
+    } catch (caught) {
+      setError(messageFrom(caught))
+    } finally {
+      setTrashLoading(false)
+    }
+  }
+
+  async function restoreTrashItem(item: TrashNote) {
+    if (restoringTrashId) return
+    setRestoringTrashId(item.id)
+    try {
+      const restored = await window.pkm.restoreTrash({ id: item.id })
+      setVault(await window.pkm.refreshTree())
+      setTrashItems(await window.pkm.listTrash())
+      setNote(restored)
+      setContent(restored.content)
+      setSearchKeyword('')
+      setSaveState('clean')
+      setLastSavedTime(savedTimeFromContent(restored.content))
+      setError('')
+    } catch (caught) {
+      setError(messageFrom(caught))
+    } finally {
+      setRestoringTrashId('')
     }
   }
 
@@ -343,6 +457,7 @@ export default function App() {
         <div className="top-actions">
           <button onClick={chooseVault}>切换知识库</button>
           <button onClick={refreshTree}>刷新</button>
+          <button onClick={() => void openTrash()}>回收站</button>
           <button className="accent-button" onClick={beginCreateNote} title="快捷键 Ctrl+N">+  新建笔记</button>
         </div>
       </header>
@@ -385,7 +500,7 @@ export default function App() {
                   <button className="danger-button" onClick={() => void deleteCurrentNote()} disabled={managingNote}>移到回收站</button>
                 </div>
                 <div className={`save-state ${saveState}`}>
-                  {saveState === 'clean' && '已保存'}
+                  {saveState === 'clean' && `已保存${lastSavedTime ? ` · ${lastSavedTime}` : ''}`}
                   {saveState === 'dirty' && '等待自动保存'}
                   {saveState === 'saving' && '正在保存…'}
                   {saveState === 'error' && '保存失败'}</div>
@@ -395,7 +510,14 @@ export default function App() {
             <div className="split-view">
               <div className="pane">
                 <div className="pane-label"><span>MARKDOWN</span><span className="editor-stats">{editorStats.lines} 行 · {editorStats.characters} 字符</span></div>
-                <textarea value={content} onChange={(event) => { setContent(event.target.value); setSaveState('dirty') }} spellCheck={false} />
+                <div className="editor-toolbar" aria-label="Markdown 快捷编辑">
+                  <button type="button" title="粗体 Ctrl+B" onMouseDown={(event) => event.preventDefault()} onClick={() => wrapSelection('**', '**', '粗体文字')}><strong>B</strong></button>
+                  <button type="button" title="斜体 Ctrl+I" onMouseDown={(event) => event.preventDefault()} onClick={() => wrapSelection('_', '_', '斜体文字')}><em>I</em></button>
+                  <button type="button" title="链接 Ctrl+K" onMouseDown={(event) => event.preventDefault()} onClick={() => wrapSelection('[', '](https://)', '链接文字')}>链接</button>
+                  <button type="button" title="一级标题" onMouseDown={(event) => event.preventDefault()} onClick={() => prefixSelectedLines('# ')}>H1</button>
+                  <button type="button" title="无序列表" onMouseDown={(event) => event.preventDefault()} onClick={() => prefixSelectedLines('- ')}>列表</button>
+                </div>
+                <textarea ref={editorRef} value={content} onChange={(event) => { setContent(event.target.value); setSaveState('dirty') }} spellCheck={false} />
               </div>
               <div className="pane preview-pane">
                 <div className="pane-label">预览</div>
@@ -432,6 +554,36 @@ export default function App() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {trashOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !restoringTrashId) setTrashOpen(false)
+        }}>
+          <section className="trash-dialog" role="dialog" aria-modal="true" aria-labelledby="trash-title">
+            <div className="trash-heading">
+              <div><p className="eyebrow">安全删除</p><h2 id="trash-title">回收站</h2></div>
+              <button type="button" onClick={() => setTrashOpen(false)} disabled={Boolean(restoringTrashId)}>关闭</button>
+            </div>
+            <p className="trash-description">删除的笔记保存在知识库的 <code>.pkm/trash</code> 中。恢复时会优先放回原来的位置。</p>
+            {trashLoading ? (
+              <p className="trash-empty">正在读取回收站…</p>
+            ) : trashItems.length === 0 ? (
+              <p className="trash-empty">回收站是空的。</p>
+            ) : (
+              <ul className="trash-list">
+                {trashItems.map((item) => (
+                  <li key={item.id}>
+                    <div><strong>{item.title}</strong><span>{item.originalPath} · 删除于 {formatTrashTime(item.deletedAt)}</span></div>
+                    <button type="button" className="accent-button" onClick={() => void restoreTrashItem(item)} disabled={Boolean(restoringTrashId)}>
+                      {restoringTrashId === item.id ? '正在恢复…' : '恢复'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       )}
     </div>

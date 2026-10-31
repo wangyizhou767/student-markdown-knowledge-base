@@ -84,6 +84,9 @@ button { cursor: pointer; }
 .pane + .pane { border-left: 1px solid #e2e0da; }
 .pane-label { height: 37px; flex: 0 0 37px; display: flex; justify-content: space-between; padding: 12px 18px 0; background: #f7f5f0; }
 .pane-label .editor-stats { color: #919791; letter-spacing: 0; text-transform: none; font-weight: 500; }
+.editor-toolbar { min-height: 39px; display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-bottom: 1px solid #e5e3dd; background: #faf9f6; }
+.editor-toolbar button { min-width: 31px; height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; color: #56615b; background: transparent; font-size: 12px; }
+.editor-toolbar button:hover { border-color: #d5d8d2; color: #285b48; background: #fff; }
 textarea { width: 100%; flex: 1; resize: none; border: 0; outline: 0; padding: 22px; color: #2c332f; background: #fcfbf8; font: 14px/1.75 "Cascadia Code", Consolas, monospace; }
 .preview-pane { overflow: hidden; }
 .markdown-preview { overflow: auto; flex: 1; padding: 24px 36px 80px; color: #343a36; line-height: 1.75; }
@@ -110,6 +113,20 @@ textarea { width: 100%; flex: 1; resize: none; border: 0; outline: 0; padding: 2
 .dialog-actions button { border: 1px solid #d1d3ce; border-radius: 9px; padding: 10px 16px; color: #48514c; background: #fff; }
 .dialog-actions .accent-button { border-color: #285b48; color: #fff; background: #285b48; }
 .dialog-actions button:disabled { cursor: wait; opacity: .58; }
+.trash-dialog { width: min(680px, 100%); max-height: min(680px, 82vh); display: flex; flex-direction: column; padding: 28px; border: 1px solid rgba(255, 255, 255, .72); border-radius: 18px; background: #faf9f6; box-shadow: 0 26px 80px rgba(20, 27, 23, .28); }
+.trash-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.trash-heading h2 { margin: 7px 0 0; color: #263d33; font: 600 28px/1.25 Georgia, "Songti SC", serif; }
+.trash-heading button { border: 1px solid #d1d3ce; border-radius: 8px; padding: 8px 12px; color: #48514c; background: #fff; }
+.trash-description { margin: 15px 0 18px; color: #707873; font-size: 13px; line-height: 1.7; }
+.trash-empty { margin: 0; padding: 34px 20px; border: 1px dashed #d7d8d2; border-radius: 12px; color: #7a817d; text-align: center; }
+.trash-list { overflow: auto; list-style: none; margin: 0; padding: 0; border: 1px solid #e0dfd9; border-radius: 12px; background: #fff; }
+.trash-list li { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 14px; }
+.trash-list li + li { border-top: 1px solid #eceae5; }
+.trash-list li > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.trash-list strong { overflow: hidden; color: #334039; text-overflow: ellipsis; white-space: nowrap; }
+.trash-list span { overflow: hidden; color: #858b87; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.trash-list .accent-button { flex: 0 0 auto; border: 0; border-radius: 8px; padding: 8px 13px; }
+.trash-list .accent-button:disabled { cursor: wait; opacity: .55; }
 
 @media (max-width: 1100px) {
   .workspace { grid-template-columns: 220px 1fr; }

@@ -7,7 +7,9 @@ export const IPC = {
   createNote: 'note:create',
   renameNote: 'note:rename',
   deleteNote: 'note:delete',
-  searchNotes: 'note:search'
+  searchNotes: 'note:search',
+  listTrash: 'trash:list',
+  restoreTrash: 'trash:restore'
 } as const
 
 export interface FileTreeNode {
@@ -57,6 +59,17 @@ export interface SearchNoteMatch {
   snippet: string
 }
 
+export interface TrashNote {
+  id: string
+  title: string
+  originalPath: string
+  deletedAt: string
+}
+
+export interface RestoreTrashInput {
+  id: string
+}
+
 export interface PkmApi {
   chooseVault(): Promise<VaultSnapshot | null>
   reopenRecentVault(): Promise<VaultSnapshot | null>
@@ -67,4 +80,6 @@ export interface PkmApi {
   renameNote(input: RenameNoteInput): Promise<NoteDocument>
   deleteNote(input: DeleteNoteInput): Promise<VaultSnapshot>
   searchNotes(input: SearchNotesInput): Promise<SearchNoteMatch[]>
+  listTrash(): Promise<TrashNote[]>
+  restoreTrash(input: RestoreTrashInput): Promise<NoteDocument>
 }

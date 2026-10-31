@@ -181,10 +181,28 @@ describe('VaultService', () => {
 
     expect(snapshot.tree).toHaveLength(0)
     await expect(readFile(join(root, '待删除.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
-    const trashFiles = await readdir(join(root, '.pkm', 'trash'))
+    const trashFiles = (await readdir(join(root, '.pkm', 'trash'))).filter((name) => name.endsWith('.md'))
     expect(trashFiles).toHaveLength(1)
     expect(trashFiles[0]).toContain('待删除.md')
     expect(await readFile(join(root, '.pkm', 'trash', trashFiles[0]), 'utf8')).toContain('# 待删除')
+  })
+
+  it('列出回收站并将笔记恢复到原路径', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pkm-vault-'))
+    const service = new VaultService()
+    await service.open(root)
+    const created = await service.createNote('可恢复笔记')
+    await service.deleteNote(created.relativePath)
+
+    const trash = await service.listTrash()
+    expect(trash).toHaveLength(1)
+    expect(trash[0]).toMatchObject({ title: '可恢复笔记', originalPath: '可恢复笔记.md' })
+
+    const restored = await service.restoreTrash(trash[0].id)
+    expect(restored.relativePath).toBe('可恢复笔记.md')
+    expect(restored.content).toContain('# 可恢复笔记')
+    expect(await service.listTrash()).toEqual([])
+    expect((await service.snapshot()).tree[0]).toMatchObject({ name: '可恢复笔记.md', type: 'note' })
   })
 
   it('可以按正文内容搜索并返回相对路径', async () => {

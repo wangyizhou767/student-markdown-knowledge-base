@@ -1,12 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { FileTreeNode, NoteDocument, SearchNoteMatch, VaultSnapshot } from '../shared/contracts'
+import type { FileTreeNode, NoteDocument, SearchNoteMatch, TrashNote, VaultSnapshot } from '../shared/contracts'
 import { findSearchTextRanges, normalizeSearchText } from '../shared/search'
 
 const INVALID_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 const INVALID_FILE_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
 const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000
+
+interface TrashMetadata {
+  originalPath: string
+  deletedAt: string
+}
 
 export function toBeijingIso(date = new Date()): string {
   return new Date(date.getTime() + BEIJING_OFFSET_MS).toISOString().replace('Z', '+08:00')
@@ -195,7 +200,76 @@ export class VaultService {
     }
 
     await rename(sourcePath, candidate)
+    const metadata: TrashMetadata = {
+      originalPath: relative(root, sourcePath).split(sep).join('/'),
+      deletedAt: toBeijingIso()
+    }
+    await writeFile(`${candidate}.json`, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8')
     return this.snapshot()
+  }
+
+  async listTrash(): Promise<TrashNote[]> {
+    const root = this.requireRoot()
+    const trashDirectory = join(root, '.pkm', 'trash')
+    if (!(await this.pathExists(trashDirectory))) return []
+
+    const entries = await readdir(trashDirectory, { withFileTypes: true })
+    const items = await Promise.all(entries
+      .filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
+      .map(async (entry): Promise<TrashNote> => {
+        const filePath = join(trashDirectory, entry.name)
+        const info = await stat(filePath)
+        const metadata = await this.readTrashMetadata(`${filePath}.json`)
+        const content = await readFile(filePath, 'utf8')
+        const titleFromContent = /^title[ \t]*:[ \t]*(.+)$/m.exec(content)?.[1]?.trim()
+        const fallbackTitle = titleFromContent || basename(entry.name, '.md')
+        const originalPath = metadata?.originalPath || `${fallbackTitle}.md`
+        return {
+          id: entry.name,
+          title: basename(originalPath, extname(originalPath)),
+          originalPath,
+          deletedAt: metadata?.deletedAt || toBeijingIso(info.mtime)
+        }
+      }))
+
+    return items.sort((left, right) => right.deletedAt.localeCompare(left.deletedAt))
+  }
+
+  async restoreTrash(id: string): Promise<NoteDocument> {
+    const root = this.requireRoot()
+    if (!id || basename(id) !== id || extname(id).toLowerCase() !== '.md') {
+      throw new VaultError('E_INVALID_TRASH_ID', '回收站项目无效。')
+    }
+
+    const trashDirectory = join(root, '.pkm', 'trash')
+    const sourcePath = join(trashDirectory, id)
+    const metadataPath = `${sourcePath}.json`
+    const content = await readFile(sourcePath, 'utf8')
+    const metadata = await this.readTrashMetadata(metadataPath)
+    const titleFromContent = /^title[ \t]*:[ \t]*(.+)$/m.exec(content)?.[1]?.trim() || basename(id, '.md')
+    const preferredRelativePath = metadata?.originalPath || `${titleFromContent}.md`
+    let targetPath = this.resolveNotePath(preferredRelativePath)
+    const targetDirectory = dirname(targetPath)
+    await mkdir(targetDirectory, { recursive: true })
+
+    if (await this.pathExists(targetPath)) {
+      const extension = extname(targetPath)
+      const stem = basename(targetPath, extension)
+      let suffix = 2
+      do {
+        targetPath = join(targetDirectory, `${stem} 恢复 ${suffix}${extension}`)
+        suffix += 1
+      } while (await this.pathExists(targetPath))
+    }
+
+    await rename(sourcePath, targetPath)
+    try {
+      await unlink(metadataPath)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const restoredRelativePath = relative(root, targetPath).split(sep).join('/')
+    return this.toDocument(restoredRelativePath, content)
   }
 
   async searchNotes(query: string): Promise<SearchNoteMatch[]> {
@@ -225,7 +299,7 @@ export class VaultService {
         vaultId: randomUUID(),
         displayName: basename(root),
         createdAt: toBeijingIso(),
-        appVersionCreated: '0.2.1'
+        appVersionCreated: '0.2.2'
       }
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     }
@@ -291,6 +365,17 @@ export class VaultService {
       return true
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  }
+
+  private async readTrashMetadata(path: string): Promise<TrashMetadata | null> {
+    try {
+      const value = JSON.parse(await readFile(path, 'utf8')) as Partial<TrashMetadata>
+      if (typeof value.originalPath !== 'string' || typeof value.deletedAt !== 'string') return null
+      return { originalPath: value.originalPath, deletedAt: value.deletedAt }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) return null
       throw error
     }
   }

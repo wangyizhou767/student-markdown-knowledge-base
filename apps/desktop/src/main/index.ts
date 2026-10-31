@@ -6,6 +6,7 @@ import {
   type CreateNoteInput,
   type DeleteNoteInput,
   type RenameNoteInput,
+  type RestoreTrashInput,
   type SaveNoteInput,
   type SearchNotesInput
 } from '../shared/contracts'
@@ -64,7 +65,7 @@ function setupApplicationMenu(): void {
               type: 'info',
               title: '关于',
               message: '学生 Markdown 知识库',
-              detail: '版本 0.2.1\n本地优先的 Markdown 笔记与知识管理工具。',
+              detail: '版本 0.2.2\n本地优先的 Markdown 笔记与知识管理工具。',
               buttons: ['确定']
             })
           }
@@ -84,6 +85,7 @@ function createWindow(): void {
     minHeight: 650,
     show: true,
     title: '学生 Markdown 知识库',
+    icon: join(__dirname, '../../build/icon.png'),
     backgroundColor: '#f5f3ee',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -151,6 +153,8 @@ function registerIpc(): void {
   )
   ipcMain.handle(IPC.deleteNote, (_event, input: DeleteNoteInput) => vault.deleteNote(input.relativePath))
   ipcMain.handle(IPC.searchNotes, (_event, input: SearchNotesInput) => vault.searchNotes(input.query))
+  ipcMain.handle(IPC.listTrash, () => vault.listTrash())
+  ipcMain.handle(IPC.restoreTrash, (_event, input: RestoreTrashInput) => vault.restoreTrash(input.id))
 }
 
 app.whenReady().then(() => {
