@@ -1,0 +1,49 @@
+name: 生成 Windows 候选包
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: 验证并生成便携程序
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - name: 获取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 执行完整自动验证
+        run: pnpm verify
+
+      - name: 生成 Windows 便携程序
+        run: pnpm package:win
+
+      - name: 保存候选包
+        uses: actions/upload-artifact@v4
+        with:
+          name: student-markdown-knowledge-base-windows
+          path: apps/desktop/dist/*.exe
+          if-no-files-found: error
+          retention-days: 14

@@ -70,11 +70,14 @@ pnpm dev
 常用验证命令：
 
 ```powershell
-pnpm test
-pnpm build
+pnpm verify
+pnpm package:dir
+pnpm package:win
 ```
 
-Pull Request 会自动执行类型检查、测试和构建。人工测试可复制 `docs/acceptance-vault/` 到仓库外，再使用软件打开该副本。
+`pnpm verify` 会依次执行类型检查、自动测试和生产构建；`package:dir` 生成便于本机检查的解包目录，`package:win` 生成 Windows 便携程序。Pull Request 会自动验证，GitHub Actions 也可手动生成候选包。
+
+人工测试可复制 `docs/acceptance-vault/` 到仓库外，再使用软件打开该副本。最终发布步骤和五分钟演示脚本见 `docs/project/07_最终发布与演示.md`。
 
 团队成员不要直接在 `main` 上开发。请从最新 `main` 创建自己的任务分支，完成后推送分支并发起 Pull Request；完整步骤见[协作说明](CONTRIBUTING.md)。
 
