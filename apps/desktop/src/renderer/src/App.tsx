@@ -197,7 +197,7 @@ export default function App() {
         wrapSelection('**', '**', '粗体文字')
       } else if (document.activeElement === editorRef.current && key === 'i') {
         event.preventDefault()
-        wrapSelection('_', '_', '斜体文字')
+        wrapSelection('*', '*', '斜体文字')
       } else if (document.activeElement === editorRef.current && key === 'k') {
         event.preventDefault()
         wrapSelection('[', '](https://)', '链接文字')
@@ -512,7 +512,7 @@ export default function App() {
                 <div className="pane-label"><span>MARKDOWN</span><span className="editor-stats">{editorStats.lines} 行 · {editorStats.characters} 字符</span></div>
                 <div className="editor-toolbar" aria-label="Markdown 快捷编辑">
                   <button type="button" title="粗体 Ctrl+B" onMouseDown={(event) => event.preventDefault()} onClick={() => wrapSelection('**', '**', '粗体文字')}><strong>B</strong></button>
-                  <button type="button" title="斜体 Ctrl+I" onMouseDown={(event) => event.preventDefault()} onClick={() => wrapSelection('_', '_', '斜体文字')}><em>I</em></button>
+                  <button type="button" title="斜体 Ctrl+I" onMouseDown={(event) => event.preventDefault()} onClick={() => wrapSelection('*', '*', '斜体文字')}><em>I</em></button>
                   <button type="button" title="链接 Ctrl+K" onMouseDown={(event) => event.preventDefault()} onClick={() => wrapSelection('[', '](https://)', '链接文字')}>链接</button>
                   <button type="button" title="一级标题" onMouseDown={(event) => event.preventDefault()} onClick={() => prefixSelectedLines('# ')}>H1</button>
                   <button type="button" title="无序列表" onMouseDown={(event) => event.preventDefault()} onClick={() => prefixSelectedLines('- ')}>列表</button>

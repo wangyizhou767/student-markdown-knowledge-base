@@ -65,7 +65,7 @@ function setupApplicationMenu(): void {
               type: 'info',
               title: '关于',
               message: '学生 Markdown 知识库',
-              detail: '版本 0.2.2\n本地优先的 Markdown 笔记与知识管理工具。',
+              detail: '版本 0.2.3\n本地优先的 Markdown 笔记与知识管理工具。',
               buttons: ['确定']
             })
           }

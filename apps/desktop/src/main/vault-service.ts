@@ -299,7 +299,7 @@ export class VaultService {
         vaultId: randomUUID(),
         displayName: basename(root),
         createdAt: toBeijingIso(),
-        appVersionCreated: '0.2.2'
+        appVersionCreated: '0.2.3'
       }
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     }
