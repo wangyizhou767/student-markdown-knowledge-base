@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { toBeijingIso, updateNoteTimestamp, VaultService } from './vault-service'
+import { toBeijingIso, updateNoteTimestamp, updateNoteTitle, VaultService } from './vault-service'
 
 describe('VaultService', () => {
   it('使用带 +08:00 偏移的北京时间', () => {
@@ -40,6 +40,28 @@ describe('VaultService', () => {
     expect(updated).toBe(
       '---\r\nupdated: 2026-10-28T17:15:00.000+08:00\r\n---\r\n\r\n# 旧笔记\r\n\r\n- 第一行\r\n- 第二行'
     )
+  })
+
+  it('重命名时只更新 YAML 标题并保留正文', () => {
+    const original = [
+      '---',
+      'id: stable-id',
+      'title: 旧标题',
+      'created: 2026-10-20T09:00:00.000+08:00',
+      '---',
+      '',
+      '# 正文标题',
+      '',
+      '正文中的 title: 不应被替换。'
+    ].join('\n')
+
+    const updated = updateNoteTitle(original, '新标题')
+
+    expect(updated).toContain('title: 新标题')
+    expect(updated).toContain('id: stable-id')
+    expect(updated).toContain('# 正文标题')
+    expect(updated).toContain('正文中的 title: 不应被替换。')
+    expect(updated.match(/^title:/gm)).toHaveLength(1)
   })
 
   it('扫描 Markdown 文件并忽略 .pkm 目录', async () => {
@@ -115,5 +137,47 @@ describe('VaultService', () => {
     expect(savedContent).toContain('# 软件工程')
     expect(savedContent).toMatch(/created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00/)
     expect(savedContent).toMatch(/updated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\+08:00/)
+  })
+
+  it('重命名笔记文件并同步 YAML 标题', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pkm-vault-'))
+    const service = new VaultService()
+    await service.open(root)
+    const created = await service.createNote('旧名称')
+
+    const renamed = await service.renameNote(created.relativePath, '新名称')
+
+    expect(renamed.relativePath).toBe('新名称.md')
+    expect(renamed.title).toBe('新名称')
+    expect(renamed.content).toContain('title: 新名称')
+    await expect(readFile(join(root, '旧名称.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(join(root, '新名称.md'), 'utf8')).toContain('title: 新名称')
+  })
+
+  it('删除笔记时移动到知识库回收站', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pkm-vault-'))
+    const service = new VaultService()
+    await service.open(root)
+    const created = await service.createNote('待删除')
+
+    const snapshot = await service.deleteNote(created.relativePath)
+
+    expect(snapshot.tree).toHaveLength(0)
+    await expect(readFile(join(root, '待删除.md'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    const trashFiles = await readdir(join(root, '.pkm', 'trash'))
+    expect(trashFiles).toHaveLength(1)
+    expect(trashFiles[0]).toContain('待删除.md')
+    expect(await readFile(join(root, '.pkm', 'trash', trashFiles[0]), 'utf8')).toContain('# 待删除')
+  })
+
+  it('可以按正文内容搜索并返回相对路径', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pkm-vault-'))
+    await writeFile(join(root, '课程.md'), '# 课程\n\n这里记录需求分析和 UML。', 'utf8')
+    await writeFile(join(root, '生活.md'), '# 生活\n\n今日运动。', 'utf8')
+    const service = new VaultService()
+    await service.open(root)
+
+    expect(await service.searchNotes('uml')).toEqual(['课程.md'])
+    expect(await service.searchNotes('不存在')).toEqual([])
   })
 })

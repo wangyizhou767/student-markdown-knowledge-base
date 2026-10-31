@@ -1,7 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, type MenuItemConstructorOptions } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { IPC, type CreateNoteInput, type SaveNoteInput } from '../shared/contracts'
+import {
+  IPC,
+  type CreateNoteInput,
+  type DeleteNoteInput,
+  type RenameNoteInput,
+  type SaveNoteInput,
+  type SearchNotesInput
+} from '../shared/contracts'
 import { VaultService } from './vault-service'
 
 const vault = new VaultService()
@@ -57,7 +64,7 @@ function setupApplicationMenu(): void {
               type: 'info',
               title: '关于',
               message: '学生 Markdown 知识库',
-              detail: '版本 0.1.0\n本地优先的 Markdown 笔记与知识管理工具。',
+              detail: '版本 0.2.0\n本地优先的 Markdown 笔记与知识管理工具。',
               buttons: ['确定']
             })
           }
@@ -139,6 +146,11 @@ function registerIpc(): void {
     vault.saveNote(input.relativePath, input.content, input.baseVersion)
   )
   ipcMain.handle(IPC.createNote, (_event, input: CreateNoteInput) => vault.createNote(input.title))
+  ipcMain.handle(IPC.renameNote, (_event, input: RenameNoteInput) =>
+    vault.renameNote(input.relativePath, input.title)
+  )
+  ipcMain.handle(IPC.deleteNote, (_event, input: DeleteNoteInput) => vault.deleteNote(input.relativePath))
+  ipcMain.handle(IPC.searchNotes, (_event, input: SearchNotesInput) => vault.searchNotes(input.query))
 }
 
 app.whenReady().then(() => {

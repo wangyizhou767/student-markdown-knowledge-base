@@ -1,30 +1,39 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileTreeNode, NoteDocument, VaultSnapshot } from '../../shared/contracts'
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'error'
 
-/** Filter notes by title or relative path, without regard to letter case. */
-export function filterFileTree(nodes: FileTreeNode[], keyword: string): FileTreeNode[] {
+/** Filter notes by title, relative path, or paths returned by full-content search. */
+export function filterFileTree(nodes: FileTreeNode[], keyword: string, contentMatches: string[] = []): FileTreeNode[] {
   const query = keyword.trim().toLocaleLowerCase()
   if (!query) return nodes
+  const matchingPaths = new Set(contentMatches.map((path) => path.toLocaleLowerCase()))
 
-  return nodes.flatMap((node) => {
-    if (node.type === 'directory') {
-      const children = filterFileTree(node.children ?? [], query)
-      return children.length > 0 ? [{ ...node, children }] : []
-    }
+  function filter(currentNodes: FileTreeNode[]): FileTreeNode[] {
+    return currentNodes.flatMap((node) => {
+      if (node.type === 'directory') {
+        const children = filter(node.children ?? [])
+        return children.length > 0 ? [{ ...node, children }] : []
+      }
 
-    const title = node.name.replace(/\.md$/i, '').toLocaleLowerCase()
-    const relativePath = node.relativePath.toLocaleLowerCase()
-    return title.includes(query) || relativePath.includes(query) ? [node] : []
-  })
+      const title = node.name.replace(/\.md$/i, '').toLocaleLowerCase()
+      const relativePath = node.relativePath.toLocaleLowerCase()
+      return title.includes(query) || relativePath.includes(query) || matchingPaths.has(relativePath) ? [node] : []
+    })
+  }
+
+  return filter(nodes)
 }
 
 function messageFrom(error: unknown): string {
   if (error instanceof Error) return error.message
   return '操作失败，请重试。'
+}
+
+function countNotes(nodes: FileTreeNode[]): number {
+  return nodes.reduce((total, node) => total + (node.type === 'note' ? 1 : countNotes(node.children ?? [])), 0)
 }
 
 function Tree({ nodes, activePath, onOpen }: { nodes: FileTreeNode[]; activePath?: string; onOpen: (path: string) => void }) {
@@ -58,6 +67,10 @@ export default function App() {
   const [newNoteTitle, setNewNoteTitle] = useState('')
   const [creatingNote, setCreatingNote] = useState(false)
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [contentMatches, setContentMatches] = useState<string[]>([])
+  const [searching, setSearching] = useState(false)
+  const [managingNote, setManagingNote] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     window.pkm.reopenRecentVault().then(setVault).catch(() => undefined)
@@ -69,10 +82,77 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [content, note, saveState])
 
+  useEffect(() => {
+    const query = searchKeyword.trim()
+    if (!query) {
+      setContentMatches([])
+      setSearching(false)
+      return
+    }
+
+    setContentMatches([])
+    let active = true
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      window.pkm.searchNotes({ query })
+        .then((matches) => {
+          if (active) setContentMatches(matches)
+        })
+        .catch((caught) => {
+          if (active) setError(messageFrom(caught))
+        })
+        .finally(() => {
+          if (active) setSearching(false)
+        })
+    }, 250)
+
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [searchKeyword, vault?.tree])
+
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey)) return
+      const key = event.key.toLocaleLowerCase()
+      if (key === 's') {
+        event.preventDefault()
+        void save()
+      } else if (key === 'f') {
+        event.preventDefault()
+        searchInputRef.current?.focus()
+        searchInputRef.current?.select()
+      } else if (key === 'n') {
+        event.preventDefault()
+        beginCreateNote()
+      }
+    }
+
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [note, content, saveState])
+
+  useEffect(() => {
+    function warnBeforeClose(event: BeforeUnloadEvent) {
+      if (saveState !== 'dirty' && saveState !== 'saving') return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', warnBeforeClose)
+    return () => window.removeEventListener('beforeunload', warnBeforeClose)
+  }, [saveState])
+
   const filteredTree = useMemo(
-    () => filterFileTree(vault?.tree ?? [], searchKeyword),
-    [vault?.tree, searchKeyword],
+    () => filterFileTree(vault?.tree ?? [], searchKeyword, contentMatches),
+    [vault?.tree, searchKeyword, contentMatches],
   )
+
+  const editorStats = useMemo(() => ({
+    characters: content.length,
+    lines: content ? content.split(/\r?\n/).length : 0
+  }), [content])
 
   const previewHtml = useMemo(() => {
     const parsed = marked.parse(content, { async: false }) as string
@@ -80,6 +160,7 @@ export default function App() {
   }, [content])
 
   async function chooseVault() {
+    if (note && saveState !== 'clean' && !(await save())) return
     setError('')
     try {
       const selected = await window.pkm.chooseVault()
@@ -87,6 +168,7 @@ export default function App() {
         setVault(selected)
         setNote(null)
         setContent('')
+        setSearchKeyword('')
       }
     } catch (caught) {
       setError(messageFrom(caught))
@@ -102,7 +184,8 @@ export default function App() {
   }
 
   async function openNote(relativePath: string) {
-    if (saveState === 'dirty') await save()
+    if (relativePath === note?.relativePath) return
+    if (note && saveState !== 'clean' && !(await save())) return
     try {
       const opened = await window.pkm.readNote(relativePath)
       setNote(opened)
@@ -129,6 +212,7 @@ export default function App() {
       setVault(await window.pkm.refreshTree())
       setNote(created)
       setContent(created.content)
+      setSearchKeyword('')
       setSaveState('clean')
       setError('')
       setNewNoteOpen(false)
@@ -139,8 +223,9 @@ export default function App() {
     }
   }
 
-  async function save() {
-    if (!note || saveState === 'saving') return
+  async function save(): Promise<boolean> {
+    if (!note || saveState === 'clean') return true
+    if (saveState === 'saving') return false
     setSaveState('saving')
     try {
       const saved = await window.pkm.saveNote({ relativePath: note.relativePath, content, baseVersion: note.version })
@@ -148,9 +233,53 @@ export default function App() {
       setContent(saved.content)
       setSaveState('clean')
       setError('')
+      return true
     } catch (caught) {
       setSaveState('error')
       setError(messageFrom(caught))
+      return false
+    }
+  }
+
+  async function renameCurrentNote() {
+    if (!note || managingNote) return
+    if (saveState !== 'clean' && !(await save())) return
+    const title = window.prompt('请输入新的笔记名称（不需要 .md 后缀）', note.title)?.trim()
+    if (!title || title === note.title) return
+
+    setManagingNote(true)
+    try {
+      const renamed = await window.pkm.renameNote({ relativePath: note.relativePath, title })
+      setVault(await window.pkm.refreshTree())
+      setNote(renamed)
+      setContent(renamed.content)
+      setSaveState('clean')
+      setError('')
+    } catch (caught) {
+      setError(messageFrom(caught))
+    } finally {
+      setManagingNote(false)
+    }
+  }
+
+  async function deleteCurrentNote() {
+    if (!note || managingNote) return
+    if (saveState !== 'clean' && !(await save())) return
+    const confirmed = window.confirm(`确定删除“${note.title}”吗？\n\n文件会移动到知识库的 .pkm/trash 回收站，可以手动恢复。`)
+    if (!confirmed) return
+
+    setManagingNote(true)
+    try {
+      const snapshot = await window.pkm.deleteNote({ relativePath: note.relativePath })
+      setVault(snapshot)
+      setNote(null)
+      setContent('')
+      setSaveState('clean')
+      setError('')
+    } catch (caught) {
+      setError(messageFrom(caught))
+    } finally {
+      setManagingNote(false)
     }
   }
 
@@ -176,7 +305,7 @@ export default function App() {
         <div className="top-actions">
           <button onClick={chooseVault}>切换知识库</button>
           <button onClick={refreshTree}>刷新</button>
-          <button className="accent-button" onClick={beginCreateNote}>+  新建笔记</button>
+          <button className="accent-button" onClick={beginCreateNote} title="快捷键 Ctrl+N">+  新建笔记</button>
         </div>
       </header>
 
@@ -187,16 +316,18 @@ export default function App() {
           <div className="section-label">笔记</div>
           <div className="note-search">
             <input
+              ref={searchInputRef}
               type="search"
               aria-label="搜索笔记"
-              placeholder="搜索笔记标题或路径…"
+              placeholder="搜索标题、路径或正文…"
               value={searchKeyword}
               onChange={(event) => setSearchKeyword(event.target.value)}
             />
             {searchKeyword && (
-              <button type="button" className="clear-search" onClick={() => setSearchKeyword('')} aria-label="清空搜索">清空</button>
+              <button type="button" className="clear-search" onClick={() => { setSearchKeyword(''); searchInputRef.current?.focus() }} aria-label="清空搜索">清空</button>
             )}
           </div>
+          {searchKeyword.trim() && <div className="search-status">{searching ? '正在搜索正文…' : `找到 ${countNotes(filteredTree)} 篇笔记`}</div>}
           {filteredTree.length > 0 ? (
             <Tree nodes={filteredTree} activePath={note?.relativePath} onOpen={openNote} />
           ) : searchKeyword.trim() ? (
@@ -210,17 +341,22 @@ export default function App() {
           <section className="editor-area">
             <div className="document-bar">
               <div><h2>{note.title}</h2><span>{note.relativePath}</span></div>
-              <div className={`save-state ${saveState}`}>
-                {saveState === 'clean' && '已保存'}
-                {saveState === 'dirty' && '等待自动保存'}
-                {saveState === 'saving' && '正在保存…'}
-                {saveState === 'error' && '保存失败'}
-                <button onClick={() => void save()} disabled={saveState === 'clean' || saveState === 'saving'}>保存</button>
+              <div className="document-actions">
+                <div className="note-management">
+                  <button onClick={() => void renameCurrentNote()} disabled={managingNote}>重命名</button>
+                  <button className="danger-button" onClick={() => void deleteCurrentNote()} disabled={managingNote}>移到回收站</button>
+                </div>
+                <div className={`save-state ${saveState}`}>
+                  {saveState === 'clean' && '已保存'}
+                  {saveState === 'dirty' && '等待自动保存'}
+                  {saveState === 'saving' && '正在保存…'}
+                  {saveState === 'error' && '保存失败'}</div>
+                <button className="save-button" onClick={() => void save()} disabled={saveState === 'clean' || saveState === 'saving'} title="快捷键 Ctrl+S">保存</button>
               </div>
             </div>
             <div className="split-view">
               <div className="pane">
-                <div className="pane-label">MARKDOWN</div>
+                <div className="pane-label"><span>MARKDOWN</span><span className="editor-stats">{editorStats.lines} 行 · {editorStats.characters} 字符</span></div>
                 <textarea value={content} onChange={(event) => { setContent(event.target.value); setSaveState('dirty') }} spellCheck={false} />
               </div>
               <div className="pane preview-pane">

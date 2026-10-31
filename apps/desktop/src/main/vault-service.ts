@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FileTreeNode, NoteDocument, VaultSnapshot } from '../shared/contracts'
 
 const INVALID_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
@@ -28,6 +28,25 @@ export function updateNoteTimestamp(content: string, date = new Date()): string 
   const nextHeader = updatedPattern.test(header)
     ? header.replace(updatedPattern, `${updatedLine}${lineEnding}`)
     : `${header}${updatedLine}${lineEnding}`
+
+  return `${bom}${frontmatter[1]}${nextHeader}${frontmatter[3]}${source.slice(frontmatter[0].length)}`
+}
+
+export function updateNoteTitle(content: string, title: string): string {
+  const hasBom = content.startsWith('\uFEFF')
+  const source = hasBom ? content.slice(1) : content
+  const bom = hasBom ? '\uFEFF' : ''
+  const lineEnding = source.includes('\r\n') ? '\r\n' : '\n'
+  const titleLine = `title: ${title}`
+  const frontmatter = /^(---[ \t]*\r?\n)([\s\S]*?)(^---[ \t]*(?:\r?\n|$))/m.exec(source)
+
+  if (!frontmatter || frontmatter.index !== 0) return content
+
+  const header = frontmatter[2]
+  const titlePattern = /^title[ \t]*:.*(?:\r?\n|$)/m
+  const nextHeader = titlePattern.test(header)
+    ? header.replace(titlePattern, `${titleLine}${lineEnding}`)
+    : `${header}${titleLine}${lineEnding}`
 
   return `${bom}${frontmatter[1]}${nextHeader}${frontmatter[3]}${source.slice(frontmatter[0].length)}`
 }
@@ -103,6 +122,70 @@ export class VaultService {
     return this.toDocument(candidate, content)
   }
 
+  async renameNote(relativePath: string, title: string): Promise<NoteDocument> {
+    const root = this.requireRoot()
+    const sourcePath = this.resolveNotePath(relativePath)
+    const normalized = title.trim()
+    if (!normalized) throw new VaultError('E_INVALID_NAME', '笔记名称不能为空。')
+    this.assertValidName(normalized)
+
+    const targetPath = join(dirname(sourcePath), `${normalized}.md`)
+    const targetRelativePath = relative(root, targetPath).split(sep).join('/')
+    if (targetPath.toLowerCase() !== sourcePath.toLowerCase() && await this.pathExists(targetPath)) {
+      throw new VaultError('E_ALREADY_EXISTS', '同一文件夹中已经存在同名笔记。')
+    }
+
+    const currentContent = await readFile(sourcePath, 'utf8')
+    const nextContent = updateNoteTitle(currentContent, normalized)
+    if (targetPath !== sourcePath) {
+      if (targetPath.toLowerCase() === sourcePath.toLowerCase()) {
+        const intermediatePath = `${sourcePath}.pkm-${randomUUID()}.tmp`
+        await rename(sourcePath, intermediatePath)
+        await rename(intermediatePath, targetPath)
+      } else {
+        await rename(sourcePath, targetPath)
+      }
+    }
+    if (nextContent !== currentContent) {
+      const tempPath = `${targetPath}.pkm-${randomUUID()}.tmp`
+      await writeFile(tempPath, nextContent, 'utf8')
+      await rename(tempPath, targetPath)
+    }
+    return this.toDocument(targetRelativePath, nextContent)
+  }
+
+  async deleteNote(relativePath: string): Promise<VaultSnapshot> {
+    const root = this.requireRoot()
+    const sourcePath = this.resolveNotePath(relativePath)
+    const trashDirectory = join(root, '.pkm', 'trash')
+    await mkdir(trashDirectory, { recursive: true })
+
+    const timestamp = toBeijingIso().replace(/[:.]/g, '-')
+    let candidate = join(trashDirectory, `${timestamp}-${basename(sourcePath)}`)
+    let suffix = 2
+    while (await this.pathExists(candidate)) {
+      candidate = join(trashDirectory, `${timestamp}-${suffix}-${basename(sourcePath)}`)
+      suffix += 1
+    }
+
+    await rename(sourcePath, candidate)
+    return this.snapshot()
+  }
+
+  async searchNotes(query: string): Promise<string[]> {
+    const normalized = query.trim().toLocaleLowerCase()
+    if (!normalized) return []
+
+    const snapshot = await this.snapshot()
+    const paths = this.collectNotePaths(snapshot.tree)
+    const matches: string[] = []
+    await Promise.all(paths.map(async (relativePath) => {
+      const content = await readFile(this.resolveNotePath(relativePath), 'utf8')
+      if (content.toLocaleLowerCase().includes(normalized)) matches.push(relativePath)
+    }))
+    return matches.sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  }
+
   private async ensureMetadata(): Promise<void> {
     const root = this.requireRoot()
     const pkmDir = join(root, '.pkm')
@@ -115,7 +198,7 @@ export class VaultService {
         vaultId: randomUUID(),
         displayName: basename(root),
         createdAt: toBeijingIso(),
-        appVersionCreated: '0.1.0'
+        appVersionCreated: '0.2.0'
       }
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     }
@@ -156,6 +239,12 @@ export class VaultService {
       throw new VaultError('E_PATH_OUTSIDE', '拒绝访问知识库之外的文件。')
     }
     return target
+  }
+
+  private collectNotePaths(nodes: FileTreeNode[]): string[] {
+    return nodes.flatMap((node) => node.type === 'note'
+      ? [node.relativePath]
+      : this.collectNotePaths(node.children ?? []))
   }
 
   private requireRoot(): string {
