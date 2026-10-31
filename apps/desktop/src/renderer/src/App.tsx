@@ -2,14 +2,15 @@ import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { FileTreeNode, NoteDocument, SearchNoteMatch, VaultSnapshot } from '../../shared/contracts'
+import { findSearchTextRanges, normalizeSearchText } from '../../shared/search'
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'error'
 
 /** Filter notes by title, relative path, or paths returned by full-content search. */
 export function filterFileTree(nodes: FileTreeNode[], keyword: string, contentMatches: string[] = []): FileTreeNode[] {
-  const query = keyword.trim().toLocaleLowerCase()
+  const query = normalizeSearchText(keyword.trim())
   if (!query) return nodes
-  const matchingPaths = new Set(contentMatches.map((path) => path.toLocaleLowerCase()))
+  const matchingPaths = new Set(contentMatches.map(normalizeSearchText))
 
   function filter(currentNodes: FileTreeNode[]): FileTreeNode[] {
     return currentNodes.flatMap((node) => {
@@ -18,8 +19,8 @@ export function filterFileTree(nodes: FileTreeNode[], keyword: string, contentMa
         return children.length > 0 ? [{ ...node, children }] : []
       }
 
-      const title = node.name.replace(/\.md$/i, '').toLocaleLowerCase()
-      const relativePath = node.relativePath.toLocaleLowerCase()
+      const title = normalizeSearchText(node.name.replace(/\.md$/i, ''))
+      const relativePath = normalizeSearchText(node.relativePath)
       return title.includes(query) || relativePath.includes(query) || matchingPaths.has(relativePath) ? [node] : []
     })
   }
@@ -37,19 +38,14 @@ function countNotes(nodes: FileTreeNode[]): number {
 }
 
 function HighlightedSnippet({ text, keyword }: { text: string; keyword: string }) {
-  const query = keyword.trim()
-  if (!query) return <>{text}</>
-
+  const ranges = findSearchTextRanges(text, keyword)
+  if (ranges.length === 0) return <>{text}</>
   const parts = []
-  const lowerText = text.toLocaleLowerCase()
-  const lowerQuery = query.toLocaleLowerCase()
   let cursor = 0
-  let matchIndex = lowerText.indexOf(lowerQuery)
-  while (matchIndex >= 0) {
-    if (matchIndex > cursor) parts.push(text.slice(cursor, matchIndex))
-    parts.push(<mark key={`${matchIndex}-${parts.length}`}>{text.slice(matchIndex, matchIndex + query.length)}</mark>)
-    cursor = matchIndex + query.length
-    matchIndex = lowerText.indexOf(lowerQuery, cursor)
+  for (const range of ranges) {
+    if (range.start > cursor) parts.push(text.slice(cursor, range.start))
+    parts.push(<mark key={`${range.start}-${parts.length}`}>{text.slice(range.start, range.end)}</mark>)
+    cursor = range.end
   }
   if (cursor < text.length) parts.push(text.slice(cursor))
   return <>{parts}</>

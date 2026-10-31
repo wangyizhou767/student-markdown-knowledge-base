@@ -64,18 +64,21 @@ describe('VaultService', () => {
     expect(updated.match(/^title:/gm)).toHaveLength(1)
   })
 
-  it('提取关键词所在句子并忽略 YAML 元数据', () => {
+  it('提取关键词所在句子并支持英文、数字和 YAML 元数据', () => {
     const content = [
       '---',
       'title: 软件工程',
       'tags: [需求分析]',
       '---',
       '',
-      '第一句介绍课程。需求分析需要先确定用户目标和业务边界，之后再绘制 UML。最后一句用于收尾。'
+      '第一句介绍课程。需求分析需要先确定用户目标和业务边界，之后再使用 React 19 绘制 UML。最后一句用于收尾。'
     ].join('\n')
 
-    expect(createSearchSnippet(content, '用户目标')).toBe('需求分析需要先确定用户目标和业务边界，之后再绘制 UML。')
-    expect(createSearchSnippet(content, '软件工程')).toBeNull()
+    expect(createSearchSnippet(content, '用户目标')).toBe('需求分析需要先确定用户目标和业务边界，之后再使用 React 19 绘制 UML。')
+    expect(createSearchSnippet(content, '软件工程')).toBe('title: 软件工程')
+    expect(createSearchSnippet(content, 'react')).toContain('React 19')
+    expect(createSearchSnippet(content, 'ＲＥＡＣＴ')).toContain('React 19')
+    expect(createSearchSnippet(content, '１９')).toContain('React 19')
   })
 
   it('扫描 Markdown 文件并忽略 .pkm 目录', async () => {
@@ -186,15 +189,17 @@ describe('VaultService', () => {
 
   it('可以按正文内容搜索并返回相对路径', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pkm-vault-'))
-    await writeFile(join(root, '课程.md'), '# 课程\n\n这里记录需求分析和 UML。', 'utf8')
+    await writeFile(join(root, '课程.md'), '# 课程\n\n课程编号 SE2026，这里记录需求分析和 UML。', 'utf8')
     await writeFile(join(root, '生活.md'), '# 生活\n\n今日运动。', 'utf8')
     const service = new VaultService()
     await service.open(root)
 
     expect(await service.searchNotes('uml')).toEqual([{
       relativePath: '课程.md',
-      snippet: '这里记录需求分析和 UML。'
+      snippet: '课程编号 SE2026，这里记录需求分析和 UML。'
     }])
+    expect(await service.searchNotes('ｕｍｌ')).toHaveLength(1)
+    expect(await service.searchNotes('２０２６')).toHaveLength(1)
     expect(await service.searchNotes('不存在')).toEqual([])
   })
 })

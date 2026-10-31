@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FileTreeNode, NoteDocument, SearchNoteMatch, VaultSnapshot } from '../shared/contracts'
+import { findSearchTextRanges, normalizeSearchText } from '../shared/search'
 
 const INVALID_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 const INVALID_FILE_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
@@ -52,31 +53,26 @@ export function updateNoteTitle(content: string, title: string): string {
 }
 
 export function createSearchSnippet(content: string, query: string, maxLength = 140): string | null {
-  const normalizedQuery = query.trim()
-  if (!normalizedQuery) return null
-
   const source = content.startsWith('\uFEFF') ? content.slice(1) : content
-  const frontmatter = /^(---[ \t]*\r?\n)([\s\S]*?)(^---[ \t]*(?:\r?\n|$))/m.exec(source)
-  const body = frontmatter?.index === 0 ? source.slice(frontmatter[0].length) : source
-  const matchIndex = body.toLocaleLowerCase().indexOf(normalizedQuery.toLocaleLowerCase())
-  if (matchIndex < 0) return null
+  const match = findSearchTextRanges(source, query)[0]
+  if (!match) return null
 
   const boundaries = /[。！？!?；;\n\r]/
-  let start = matchIndex
-  let end = matchIndex + normalizedQuery.length
-  while (start > 0 && !boundaries.test(body[start - 1]) && matchIndex - start < maxLength) start -= 1
-  while (end < body.length && !boundaries.test(body[end]) && end - matchIndex < maxLength) end += 1
-  if (end < body.length && boundaries.test(body[end])) end += 1
+  let start = match.start
+  let end = match.end
+  while (start > 0 && !boundaries.test(source[start - 1]) && match.start - start < maxLength) start -= 1
+  while (end < source.length && !boundaries.test(source[end]) && end - match.start < maxLength) end += 1
+  if (end < source.length && boundaries.test(source[end])) end += 1
 
-  let snippet = body.slice(start, end).replace(/\s+/g, ' ').trim()
+  let snippet = source.slice(start, end).replace(/\s+/g, ' ').trim()
   if (snippet.length > maxLength) {
-    const phraseIndex = snippet.toLocaleLowerCase().indexOf(normalizedQuery.toLocaleLowerCase())
+    const phraseIndex = findSearchTextRanges(snippet, query)[0]?.start ?? 0
     const windowStart = Math.max(0, Math.min(phraseIndex - 36, snippet.length - maxLength))
     const windowEnd = Math.min(snippet.length, windowStart + maxLength)
     snippet = `${windowStart > 0 ? '…' : ''}${snippet.slice(windowStart, windowEnd).trim()}${windowEnd < snippet.length ? '…' : ''}`
   } else {
-    if (start > 0 && !boundaries.test(body[start - 1])) snippet = `…${snippet}`
-    if (end < body.length && !boundaries.test(body[end - 1])) snippet = `${snippet}…`
+    if (start > 0 && !boundaries.test(source[start - 1])) snippet = `…${snippet}`
+    if (end < source.length && !boundaries.test(source[end - 1])) snippet = `${snippet}…`
   }
   return snippet
 }
@@ -203,7 +199,7 @@ export class VaultService {
   }
 
   async searchNotes(query: string): Promise<SearchNoteMatch[]> {
-    const normalized = query.trim().toLocaleLowerCase()
+    const normalized = normalizeSearchText(query.trim())
     if (!normalized) return []
 
     const snapshot = await this.snapshot()
