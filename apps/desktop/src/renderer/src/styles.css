@@ -55,6 +55,12 @@ button { cursor: pointer; }
 .tree-list .tree-list { margin-left: 14px; }
 .tree-list summary, .note-row { width: 100%; display: flex; gap: 8px; align-items: center; border: 0; border-radius: 8px; padding: 8px 10px; color: #48504b; background: transparent; text-align: left; }
 .tree-list summary { cursor: pointer; font-weight: 650; }
+.note-row { align-items: flex-start; }
+.note-row .tree-icon { margin-top: 1px; }
+.note-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.note-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-snippet { display: -webkit-box; overflow: hidden; color: #79817c; font-size: 11px; font-weight: 400; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.note-snippet mark { padding: 0 2px; border-radius: 3px; color: #5d4316; background: #f6dfa4; }
 .note-row:hover, .note-row.active { background: #fff; color: #234d3d; }
 .note-row.active { box-shadow: inset 3px 0 #3a765e; font-weight: 650; }
 .tree-icon { color: #688276; }

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { toBeijingIso, updateNoteTimestamp, updateNoteTitle, VaultService } from './vault-service'
+import { createSearchSnippet, toBeijingIso, updateNoteTimestamp, updateNoteTitle, VaultService } from './vault-service'
 
 describe('VaultService', () => {
   it('使用带 +08:00 偏移的北京时间', () => {
@@ -62,6 +62,20 @@ describe('VaultService', () => {
     expect(updated).toContain('# 正文标题')
     expect(updated).toContain('正文中的 title: 不应被替换。')
     expect(updated.match(/^title:/gm)).toHaveLength(1)
+  })
+
+  it('提取关键词所在句子并忽略 YAML 元数据', () => {
+    const content = [
+      '---',
+      'title: 软件工程',
+      'tags: [需求分析]',
+      '---',
+      '',
+      '第一句介绍课程。需求分析需要先确定用户目标和业务边界，之后再绘制 UML。最后一句用于收尾。'
+    ].join('\n')
+
+    expect(createSearchSnippet(content, '用户目标')).toBe('需求分析需要先确定用户目标和业务边界，之后再绘制 UML。')
+    expect(createSearchSnippet(content, '软件工程')).toBeNull()
   })
 
   it('扫描 Markdown 文件并忽略 .pkm 目录', async () => {
@@ -177,7 +191,10 @@ describe('VaultService', () => {
     const service = new VaultService()
     await service.open(root)
 
-    expect(await service.searchNotes('uml')).toEqual(['课程.md'])
+    expect(await service.searchNotes('uml')).toEqual([{
+      relativePath: '课程.md',
+      snippet: '这里记录需求分析和 UML。'
+    }])
     expect(await service.searchNotes('不存在')).toEqual([])
   })
 })

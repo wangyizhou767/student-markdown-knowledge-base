@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import type { FileTreeNode, NoteDocument, VaultSnapshot } from '../../shared/contracts'
+import type { FileTreeNode, NoteDocument, SearchNoteMatch, VaultSnapshot } from '../../shared/contracts'
 
 type SaveState = 'clean' | 'dirty' | 'saving' | 'error'
 
@@ -36,7 +36,38 @@ function countNotes(nodes: FileTreeNode[]): number {
   return nodes.reduce((total, node) => total + (node.type === 'note' ? 1 : countNotes(node.children ?? [])), 0)
 }
 
-function Tree({ nodes, activePath, onOpen }: { nodes: FileTreeNode[]; activePath?: string; onOpen: (path: string) => void }) {
+function HighlightedSnippet({ text, keyword }: { text: string; keyword: string }) {
+  const query = keyword.trim()
+  if (!query) return <>{text}</>
+
+  const parts = []
+  const lowerText = text.toLocaleLowerCase()
+  const lowerQuery = query.toLocaleLowerCase()
+  let cursor = 0
+  let matchIndex = lowerText.indexOf(lowerQuery)
+  while (matchIndex >= 0) {
+    if (matchIndex > cursor) parts.push(text.slice(cursor, matchIndex))
+    parts.push(<mark key={`${matchIndex}-${parts.length}`}>{text.slice(matchIndex, matchIndex + query.length)}</mark>)
+    cursor = matchIndex + query.length
+    matchIndex = lowerText.indexOf(lowerQuery, cursor)
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor))
+  return <>{parts}</>
+}
+
+function Tree({
+  nodes,
+  activePath,
+  onOpen,
+  snippets,
+  keyword
+}: {
+  nodes: FileTreeNode[]
+  activePath?: string
+  onOpen: (path: string) => void
+  snippets: Map<string, string>
+  keyword: string
+}) {
   return (
     <ul className="tree-list">
       {nodes.map((node) => (
@@ -44,11 +75,17 @@ function Tree({ nodes, activePath, onOpen }: { nodes: FileTreeNode[]; activePath
           {node.type === 'directory' ? (
             <details open>
               <summary><span className="tree-icon">◇</span>{node.name}</summary>
-              <Tree nodes={node.children ?? []} activePath={activePath} onOpen={onOpen} />
+              <Tree nodes={node.children ?? []} activePath={activePath} onOpen={onOpen} snippets={snippets} keyword={keyword} />
             </details>
           ) : (
             <button className={`note-row ${activePath === node.relativePath ? 'active' : ''}`} onClick={() => onOpen(node.relativePath)}>
-              <span className="tree-icon">□</span>{node.name.replace(/\.md$/i, '')}
+              <span className="tree-icon">□</span>
+              <span className="note-copy">
+                <span className="note-title">{node.name.replace(/\.md$/i, '')}</span>
+                {snippets.get(node.relativePath) && (
+                  <span className="note-snippet"><HighlightedSnippet text={snippets.get(node.relativePath) ?? ''} keyword={keyword} /></span>
+                )}
+              </span>
             </button>
           )}
         </li>
@@ -67,7 +104,7 @@ export default function App() {
   const [newNoteTitle, setNewNoteTitle] = useState('')
   const [creatingNote, setCreatingNote] = useState(false)
   const [searchKeyword, setSearchKeyword] = useState('')
-  const [contentMatches, setContentMatches] = useState<string[]>([])
+  const [contentMatches, setContentMatches] = useState<SearchNoteMatch[]>([])
   const [searching, setSearching] = useState(false)
   const [managingNote, setManagingNote] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -145,8 +182,13 @@ export default function App() {
   }, [saveState])
 
   const filteredTree = useMemo(
-    () => filterFileTree(vault?.tree ?? [], searchKeyword, contentMatches),
+    () => filterFileTree(vault?.tree ?? [], searchKeyword, contentMatches.map((match) => match.relativePath)),
     [vault?.tree, searchKeyword, contentMatches],
+  )
+
+  const snippets = useMemo(
+    () => new Map(contentMatches.map((match) => [match.relativePath, match.snippet])),
+    [contentMatches]
   )
 
   const editorStats = useMemo(() => ({
@@ -329,7 +371,7 @@ export default function App() {
           </div>
           {searchKeyword.trim() && <div className="search-status">{searching ? '正在搜索正文…' : `找到 ${countNotes(filteredTree)} 篇笔记`}</div>}
           {filteredTree.length > 0 ? (
-            <Tree nodes={filteredTree} activePath={note?.relativePath} onOpen={openNote} />
+            <Tree nodes={filteredTree} activePath={note?.relativePath} onOpen={openNote} snippets={snippets} keyword={searchKeyword} />
           ) : searchKeyword.trim() ? (
             <p className="empty-copy search-empty">未找到笔记</p>
           ) : (

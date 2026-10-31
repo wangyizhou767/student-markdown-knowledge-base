@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { FileTreeNode, NoteDocument, VaultSnapshot } from '../shared/contracts'
+import type { FileTreeNode, NoteDocument, SearchNoteMatch, VaultSnapshot } from '../shared/contracts'
 
 const INVALID_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 const INVALID_FILE_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
@@ -49,6 +49,36 @@ export function updateNoteTitle(content: string, title: string): string {
     : `${header}${titleLine}${lineEnding}`
 
   return `${bom}${frontmatter[1]}${nextHeader}${frontmatter[3]}${source.slice(frontmatter[0].length)}`
+}
+
+export function createSearchSnippet(content: string, query: string, maxLength = 140): string | null {
+  const normalizedQuery = query.trim()
+  if (!normalizedQuery) return null
+
+  const source = content.startsWith('\uFEFF') ? content.slice(1) : content
+  const frontmatter = /^(---[ \t]*\r?\n)([\s\S]*?)(^---[ \t]*(?:\r?\n|$))/m.exec(source)
+  const body = frontmatter?.index === 0 ? source.slice(frontmatter[0].length) : source
+  const matchIndex = body.toLocaleLowerCase().indexOf(normalizedQuery.toLocaleLowerCase())
+  if (matchIndex < 0) return null
+
+  const boundaries = /[。！？!?；;\n\r]/
+  let start = matchIndex
+  let end = matchIndex + normalizedQuery.length
+  while (start > 0 && !boundaries.test(body[start - 1]) && matchIndex - start < maxLength) start -= 1
+  while (end < body.length && !boundaries.test(body[end]) && end - matchIndex < maxLength) end += 1
+  if (end < body.length && boundaries.test(body[end])) end += 1
+
+  let snippet = body.slice(start, end).replace(/\s+/g, ' ').trim()
+  if (snippet.length > maxLength) {
+    const phraseIndex = snippet.toLocaleLowerCase().indexOf(normalizedQuery.toLocaleLowerCase())
+    const windowStart = Math.max(0, Math.min(phraseIndex - 36, snippet.length - maxLength))
+    const windowEnd = Math.min(snippet.length, windowStart + maxLength)
+    snippet = `${windowStart > 0 ? '…' : ''}${snippet.slice(windowStart, windowEnd).trim()}${windowEnd < snippet.length ? '…' : ''}`
+  } else {
+    if (start > 0 && !boundaries.test(body[start - 1])) snippet = `…${snippet}`
+    if (end < body.length && !boundaries.test(body[end - 1])) snippet = `${snippet}…`
+  }
+  return snippet
 }
 
 export class VaultError extends Error {
@@ -172,18 +202,19 @@ export class VaultService {
     return this.snapshot()
   }
 
-  async searchNotes(query: string): Promise<string[]> {
+  async searchNotes(query: string): Promise<SearchNoteMatch[]> {
     const normalized = query.trim().toLocaleLowerCase()
     if (!normalized) return []
 
     const snapshot = await this.snapshot()
     const paths = this.collectNotePaths(snapshot.tree)
-    const matches: string[] = []
+    const matches: SearchNoteMatch[] = []
     await Promise.all(paths.map(async (relativePath) => {
       const content = await readFile(this.resolveNotePath(relativePath), 'utf8')
-      if (content.toLocaleLowerCase().includes(normalized)) matches.push(relativePath)
+      const snippet = createSearchSnippet(content, normalized)
+      if (snippet) matches.push({ relativePath, snippet })
     }))
-    return matches.sort((left, right) => left.localeCompare(right, 'zh-CN'))
+    return matches.sort((left, right) => left.relativePath.localeCompare(right.relativePath, 'zh-CN'))
   }
 
   private async ensureMetadata(): Promise<void> {

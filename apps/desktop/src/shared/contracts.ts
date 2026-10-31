@@ -52,6 +52,11 @@ export interface SearchNotesInput {
   query: string
 }
 
+export interface SearchNoteMatch {
+  relativePath: string
+  snippet: string
+}
+
 export interface PkmApi {
   chooseVault(): Promise<VaultSnapshot | null>
   reopenRecentVault(): Promise<VaultSnapshot | null>
@@ -61,5 +66,5 @@ export interface PkmApi {
   createNote(input: CreateNoteInput): Promise<NoteDocument>
   renameNote(input: RenameNoteInput): Promise<NoteDocument>
   deleteNote(input: DeleteNoteInput): Promise<VaultSnapshot>
-  searchNotes(input: SearchNotesInput): Promise<string[]>
+  searchNotes(input: SearchNotesInput): Promise<SearchNoteMatch[]>
 }
