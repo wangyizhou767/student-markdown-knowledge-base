@@ -130,6 +130,8 @@ export default function App() {
   const [contentMatches, setContentMatches] = useState<SearchNoteMatch[]>([])
   const [searching, setSearching] = useState(false)
   const [managingNote, setManagingNote] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [renameTitle, setRenameTitle] = useState('')
   const [lastSavedTime, setLastSavedTime] = useState('')
   const [trashOpen, setTrashOpen] = useState(false)
   const [trashItems, setTrashItems] = useState<TrashNote[]>([])
@@ -325,11 +327,27 @@ export default function App() {
     }
   }
 
-  async function renameCurrentNote() {
+  async function beginRenameNote() {
     if (!note || managingNote) return
     if (saveState !== 'clean' && !(await save())) return
-    const title = window.prompt('请输入新的笔记名称（不需要 .md 后缀）', note.title)?.trim()
-    if (!title || title === note.title) return
+
+    setRenameTitle(note.title)
+    setRenameOpen(true)
+    setError('')
+  }
+
+  async function renameCurrentNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!note || managingNote) return
+    const title = renameTitle.trim()
+    if (!title) {
+      setError('笔记名称不能为空。')
+      return
+    }
+    if (title === note.title) {
+      setRenameOpen(false)
+      return
+    }
 
     setManagingNote(true)
     try {
@@ -340,6 +358,7 @@ export default function App() {
       setSaveState('clean')
       setLastSavedTime(savedTimeFromContent(renamed.content))
       setError('')
+      setRenameOpen(false)
     } catch (caught) {
       setError(messageFrom(caught))
     } finally {
@@ -496,7 +515,7 @@ export default function App() {
               <div><h2>{note.title}</h2><span>{note.relativePath}</span></div>
               <div className="document-actions">
                 <div className="note-management">
-                  <button onClick={() => void renameCurrentNote()} disabled={managingNote}>重命名</button>
+                  <button onClick={() => void beginRenameNote()} disabled={managingNote}>重命名</button>
                   <button className="danger-button" onClick={() => void deleteCurrentNote()} disabled={managingNote}>移到回收站</button>
                 </div>
                 <div className={`save-state ${saveState}`}>
@@ -551,6 +570,33 @@ export default function App() {
               <button type="button" onClick={() => setNewNoteOpen(false)} disabled={creatingNote}>取消</button>
               <button className="accent-button" type="submit" disabled={creatingNote}>
                 {creatingNote ? '正在创建…' : '创建并打开'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {renameOpen && note && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !managingNote) setRenameOpen(false)
+        }}>
+          <form className="new-note-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-note-title" onSubmit={renameCurrentNote}>
+            <p className="eyebrow">重命名笔记</p>
+            <h2 id="rename-note-title">修改笔记名称</h2>
+            <p>文件名和笔记标题会一起更新，不用输入 <code>.md</code> 后缀。</p>
+            <label htmlFor="rename-note-name">新名称</label>
+            <input
+              id="rename-note-name"
+              autoFocus
+              maxLength={120}
+              value={renameTitle}
+              onChange={(event) => setRenameTitle(event.target.value)}
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <div className="dialog-actions">
+              <button type="button" onClick={() => setRenameOpen(false)} disabled={managingNote}>取消</button>
+              <button className="accent-button" type="submit" disabled={managingNote || !renameTitle.trim()}>
+                {managingNote ? '正在重命名…' : '确认重命名'}
               </button>
             </div>
           </form>
