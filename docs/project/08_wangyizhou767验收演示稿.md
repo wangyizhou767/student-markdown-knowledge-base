@@ -56,9 +56,9 @@
 
 代码定位：
 
-- 界面新建和编辑：`App.tsx` 中的 `createNote`、`wrapSelection`；
-- Markdown 预览：`App.tsx` 约第 240 行的 `marked.parse` 和 `DOMPurify.sanitize`；
-- UUID 与时间：`vault-service.ts` 中的 `createNote` 和 `toBeijingIso`。
+- 界面新建和编辑：`App.tsx` 中的 `createNote`（第 290 行）、`wrapSelection`（第 391 行）；
+- Markdown 预览：`App.tsx` 中的 `marked.parse`（第 240 行）和 `DOMPurify.sanitize`（第 241 行）；
+- UUID 与时间：`vault-service.ts` 中的 `createNote`（第 138 行）和 `toBeijingIso`（第 16 行）。
 
 ### 1:25～2:15：展示保存和数据安全
 
@@ -70,11 +70,11 @@
 
 代码定位：
 
-- 界面保存：`App.tsx` 中的 `save`；
+- 界面保存：`App.tsx` 中的 `save`（第 311 行）；
 - 白名单桥接：`preload/index.ts`；
 - IPC 注册：`main/index.ts` 约第 145～157 行；
-- 安全写入与冲突检查：`vault-service.ts` 中的 `saveNote`；
-- 时间更新：`vault-service.ts` 中的 `updateNoteTimestamp`。
+- 安全写入与冲突检查：`vault-service.ts` 中的 `saveNote`（第 124 行）；
+- 时间更新：`vault-service.ts` 中的 `updateNoteTimestamp`（第 20 行）。
 
 ### 2:15～3:10：展示搜索增强
 
@@ -90,11 +90,11 @@
 
 代码定位：
 
-- 文件树筛选：`App.tsx` 中的 `filterFileTree`；
-- 搜索请求和结果展示：`App.tsx` 中的搜索副作用、`HighlightedSnippet`；
-- 正文扫描：`vault-service.ts` 中的 `searchNotes`；
-- 句子截取：`vault-service.ts` 中的 `createSearchSnippet`；
-- 英文、数字和全角兼容：`shared/search.ts` 中的 `normalizeSearchText`、`findSearchTextRanges`。
+- 文件树筛选：`App.tsx` 中的 `filterFileTree`（第 10 行）；
+- 搜索请求和结果展示：`App.tsx` 中的搜索副作用（第 153 行起）、`HighlightedSnippet`（第 67 行）；
+- 正文扫描：`vault-service.ts` 中的 `searchNotes`（第 275 行）；
+- 句子截取：`vault-service.ts` 中的 `createSearchSnippet`（第 60 行）；
+- 英文、数字和全角兼容：`shared/search.ts` 中的 `normalizeSearchText`（第 6 行）、`findSearchTextRanges`（第 10 行）。
 
 ### 3:10～4:00：展示重命名和回收站
 
@@ -110,10 +110,10 @@
 
 代码定位：
 
-- 重命名界面：`App.tsx` 中的 `beginRenameNote`、`renameCurrentNote`；
-- 重命名文件：`vault-service.ts` 中的 `renameNote`；
-- 删除和恢复界面：`App.tsx` 中的 `deleteCurrentNote`、`openTrash`、`restoreTrashItem`；
-- 回收站文件操作：`vault-service.ts` 中的 `deleteNote`、`listTrash`、`restoreTrash`。
+- 重命名界面：`App.tsx` 中的 `beginRenameNote`（第 330 行）、`renameCurrentNote`（第 339 行）；
+- 重命名文件：`vault-service.ts` 中的 `renameNote`（第 156 行）；
+- 删除和恢复界面：`App.tsx` 中的 `deleteCurrentNote`（第 369 行）、`openTrash`（第 424 行）、`restoreTrashItem`（第 437 行）；
+- 回收站文件操作：`vault-service.ts` 中的 `deleteNote`（第 188 行）、`listTrash`（第 211 行）、`restoreTrash`（第 238 行）。
 
 ### 4:00～4:45：解释程序架构
 
@@ -144,16 +144,16 @@
 
 | 老师问的功能 | 界面入口 | 跨进程入口 | 文件或业务实现 | 测试证据 |
 |---|---|---|---|---|
-| 新建笔记 | `App.tsx/createNote` | `IPC.createNote` | `VaultService.createNote` | `创建笔记并在重名时自动追加序号` |
-| 保存与自动保存 | `App.tsx/save` | `IPC.saveNote` | `VaultService.saveNote` | `重复保存时维护 updated…` |
-| Markdown 预览 | `marked.parse` + `DOMPurify.sanitize` | 不需要 IPC | 渲染进程内安全转换 | `markdown-format.test.ts` |
-| 重命名 | `beginRenameNote`、`renameCurrentNote` | `IPC.renameNote` | `VaultService.renameNote` | `重命名笔记文件并同步 YAML 标题` |
-| 搜索 | `filterFileTree`、`HighlightedSnippet` | `IPC.searchNotes` | `searchNotes`、`createSearchSnippet` | `可以按正文内容搜索…` |
-| 回收站 | `deleteCurrentNote`、`restoreTrashItem` | `deleteNote/listTrash/restoreTrash` | `.pkm/trash` 内移动和元数据 | 删除、列出和恢复测试 |
-| 北京时间 | 保存后状态显示 | 保存 IPC | `toBeijingIso`、`updateNoteTimestamp` | `使用带 +08:00 偏移的北京时间` |
-| 路径安全 | 错误提示 | 所有文件 IPC | `resolveNotePath` | `拒绝读取知识库之外的路径` |
-| 冲突保护 | 保存失败提示 | 保存 IPC | 内容版本哈希比较 | `使用版本哈希阻止静默覆盖外部修改` |
-| Windows 打包 | 无 | Electron 启动入口 | `package.json/package:win` | `.exe` 实际启动检查 |
+| 新建笔记 | `createNote`：`apps/desktop/src/renderer/src/App.tsx` 第 290 行 | `IPC.createNote`：`apps/desktop/src/shared/contracts.ts` 第 7 行；preload 调用：`apps/desktop/src/preload/index.ts` 第 19 行；主进程处理：`apps/desktop/src/main/index.ts` 第 150 行 | `VaultService.createNote`：`apps/desktop/src/main/vault-service.ts` 第 138 行 | `apps/desktop/src/main/vault-service.test.ts` 第 143 行 |
+| 保存与自动保存 | `save`：`apps/desktop/src/renderer/src/App.tsx` 第 311 行 | `IPC.saveNote`：`apps/desktop/src/shared/contracts.ts` 第 6 行；preload 调用：`apps/desktop/src/preload/index.ts` 第 18 行；主进程处理：`apps/desktop/src/main/index.ts` 第 147 行 | `VaultService.saveNote`：`apps/desktop/src/main/vault-service.ts` 第 124 行 | `apps/desktop/src/main/vault-service.test.ts` 第 115 行 |
+| Markdown 预览 | `marked.parse`、`DOMPurify.sanitize`：`apps/desktop/src/renderer/src/App.tsx` 第 240～241 行 | 不需要 IPC | 渲染进程内安全转换：`apps/desktop/src/renderer/src/App.tsx` 第 239～242 行 | `apps/desktop/src/renderer/src/markdown-format.test.ts` 第 5 行 |
+| 重命名 | `beginRenameNote`、`renameCurrentNote`：`apps/desktop/src/renderer/src/App.tsx` 第 330、339 行 | `IPC.renameNote`：`apps/desktop/src/shared/contracts.ts` 第 8 行；preload 调用：`apps/desktop/src/preload/index.ts` 第 20 行；主进程处理：`apps/desktop/src/main/index.ts` 第 151 行 | `VaultService.renameNote`：`apps/desktop/src/main/vault-service.ts` 第 156 行 | `apps/desktop/src/main/vault-service.test.ts` 第 159 行 |
+| 搜索 | `filterFileTree`、`HighlightedSnippet`：`apps/desktop/src/renderer/src/App.tsx` 第 10、67 行 | `IPC.searchNotes`：`apps/desktop/src/shared/contracts.ts` 第 10 行；preload 调用：`apps/desktop/src/preload/index.ts` 第 22 行；主进程处理：`apps/desktop/src/main/index.ts` 第 155 行 | `searchNotes`、`createSearchSnippet`：`apps/desktop/src/main/vault-service.ts` 第 275、60 行 | `apps/desktop/src/main/vault-service.test.ts` 第 208 行 |
+| 回收站 | `deleteCurrentNote`、`restoreTrashItem`：`apps/desktop/src/renderer/src/App.tsx` 第 369、437 行 | `IPC.deleteNote/listTrash/restoreTrash`：`apps/desktop/src/shared/contracts.ts` 第 9、11、12 行；preload 调用：`apps/desktop/src/preload/index.ts` 第 21、23、24 行；主进程处理：`apps/desktop/src/main/index.ts` 第 154、156、157 行 | `deleteNote`、`listTrash`、`restoreTrash`：`apps/desktop/src/main/vault-service.ts` 第 188、211、238 行 | `apps/desktop/src/main/vault-service.test.ts` 第 174、190 行 |
+| 北京时间 | `savedTimeFromContent`：`apps/desktop/src/renderer/src/App.tsx` 第 40 行 | `IPC.saveNote`：`apps/desktop/src/shared/contracts.ts` 第 6 行；主进程处理：`apps/desktop/src/main/index.ts` 第 147 行 | `toBeijingIso`、`updateNoteTimestamp`：`apps/desktop/src/main/vault-service.ts` 第 16、20 行 | `apps/desktop/src/main/vault-service.test.ts` 第 8、12、35、115 行 |
+| 路径安全 | 错误提示：`apps/desktop/src/renderer/src/App.tsx` | 文件 IPC 定义：`apps/desktop/src/shared/contracts.ts` 第 2～12 行；主进程处理：`apps/desktop/src/main/index.ts` 第 124～157 行 | `resolveNotePath`：`apps/desktop/src/main/vault-service.ts` 第 331 行 | `apps/desktop/src/main/vault-service.test.ts` 第 94 行 |
+| 冲突保护 | `save` 及失败提示：`apps/desktop/src/renderer/src/App.tsx` 第 311～327 行 | `IPC.saveNote`：`apps/desktop/src/shared/contracts.ts` 第 6 行；主进程处理：`apps/desktop/src/main/index.ts` 第 147 行 | `VaultService.saveNote` 的版本哈希比较：`apps/desktop/src/main/vault-service.ts` 第 124～135 行 | `apps/desktop/src/main/vault-service.test.ts` 第 102 行 |
+| Windows 打包 | 无 | Electron 启动入口 | `apps/desktop/package.json` 中的 `package:win`（该文件不在 `apps/desktop/src` 中） | `apps/desktop/dist/学生 Markdown 知识库 0.2.4.exe` 实际启动检查（该文件不在 `apps/desktop/src` 中） |
 
 ## 五、技术栈回答
 
