@@ -1,11 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
-import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { FileTreeNode, NoteDocument, VaultSnapshot } from '../shared/contracts'
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import type { FileTreeNode, NoteDocument, SearchNoteMatch, TrashNote, VaultSnapshot } from '../shared/contracts'
+import { findSearchTextRanges, normalizeSearchText } from '../shared/search'
 
 const INVALID_WINDOWS_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i
 const INVALID_FILE_CHARS = /[<>:"/\\|?*\u0000-\u001f]/
 const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000
+
+interface TrashMetadata {
+  originalPath: string
+  deletedAt: string
+}
 
 export function toBeijingIso(date = new Date()): string {
   return new Date(date.getTime() + BEIJING_OFFSET_MS).toISOString().replace('Z', '+08:00')
@@ -30,6 +36,50 @@ export function updateNoteTimestamp(content: string, date = new Date()): string 
     : `${header}${updatedLine}${lineEnding}`
 
   return `${bom}${frontmatter[1]}${nextHeader}${frontmatter[3]}${source.slice(frontmatter[0].length)}`
+}
+
+export function updateNoteTitle(content: string, title: string): string {
+  const hasBom = content.startsWith('\uFEFF')
+  const source = hasBom ? content.slice(1) : content
+  const bom = hasBom ? '\uFEFF' : ''
+  const lineEnding = source.includes('\r\n') ? '\r\n' : '\n'
+  const titleLine = `title: ${title}`
+  const frontmatter = /^(---[ \t]*\r?\n)([\s\S]*?)(^---[ \t]*(?:\r?\n|$))/m.exec(source)
+
+  if (!frontmatter || frontmatter.index !== 0) return content
+
+  const header = frontmatter[2]
+  const titlePattern = /^title[ \t]*:.*(?:\r?\n|$)/m
+  const nextHeader = titlePattern.test(header)
+    ? header.replace(titlePattern, `${titleLine}${lineEnding}`)
+    : `${header}${titleLine}${lineEnding}`
+
+  return `${bom}${frontmatter[1]}${nextHeader}${frontmatter[3]}${source.slice(frontmatter[0].length)}`
+}
+
+export function createSearchSnippet(content: string, query: string, maxLength = 140): string | null {
+  const source = content.startsWith('\uFEFF') ? content.slice(1) : content
+  const match = findSearchTextRanges(source, query)[0]
+  if (!match) return null
+
+  const boundaries = /[。！？!?；;\n\r]/
+  let start = match.start
+  let end = match.end
+  while (start > 0 && !boundaries.test(source[start - 1]) && match.start - start < maxLength) start -= 1
+  while (end < source.length && !boundaries.test(source[end]) && end - match.start < maxLength) end += 1
+  if (end < source.length && boundaries.test(source[end])) end += 1
+
+  let snippet = source.slice(start, end).replace(/\s+/g, ' ').trim()
+  if (snippet.length > maxLength) {
+    const phraseIndex = findSearchTextRanges(snippet, query)[0]?.start ?? 0
+    const windowStart = Math.max(0, Math.min(phraseIndex - 36, snippet.length - maxLength))
+    const windowEnd = Math.min(snippet.length, windowStart + maxLength)
+    snippet = `${windowStart > 0 ? '…' : ''}${snippet.slice(windowStart, windowEnd).trim()}${windowEnd < snippet.length ? '…' : ''}`
+  } else {
+    if (start > 0 && !boundaries.test(source[start - 1])) snippet = `…${snippet}`
+    if (end < source.length && !boundaries.test(source[end - 1])) snippet = `${snippet}…`
+  }
+  return snippet
 }
 
 export class VaultError extends Error {
@@ -103,6 +153,140 @@ export class VaultService {
     return this.toDocument(candidate, content)
   }
 
+  async renameNote(relativePath: string, title: string): Promise<NoteDocument> {
+    const root = this.requireRoot()
+    const sourcePath = this.resolveNotePath(relativePath)
+    const normalized = title.trim()
+    if (!normalized) throw new VaultError('E_INVALID_NAME', '笔记名称不能为空。')
+    this.assertValidName(normalized)
+
+    const targetPath = join(dirname(sourcePath), `${normalized}.md`)
+    const targetRelativePath = relative(root, targetPath).split(sep).join('/')
+    if (targetPath.toLowerCase() !== sourcePath.toLowerCase() && await this.pathExists(targetPath)) {
+      throw new VaultError('E_ALREADY_EXISTS', '同一文件夹中已经存在同名笔记。')
+    }
+
+    const currentContent = await readFile(sourcePath, 'utf8')
+    const nextContent = updateNoteTitle(currentContent, normalized)
+    if (targetPath !== sourcePath) {
+      if (targetPath.toLowerCase() === sourcePath.toLowerCase()) {
+        const intermediatePath = `${sourcePath}.pkm-${randomUUID()}.tmp`
+        await rename(sourcePath, intermediatePath)
+        await rename(intermediatePath, targetPath)
+      } else {
+        await rename(sourcePath, targetPath)
+      }
+    }
+    if (nextContent !== currentContent) {
+      const tempPath = `${targetPath}.pkm-${randomUUID()}.tmp`
+      await writeFile(tempPath, nextContent, 'utf8')
+      await rename(tempPath, targetPath)
+    }
+    return this.toDocument(targetRelativePath, nextContent)
+  }
+
+  async deleteNote(relativePath: string): Promise<VaultSnapshot> {
+    const root = this.requireRoot()
+    const sourcePath = this.resolveNotePath(relativePath)
+    const trashDirectory = join(root, '.pkm', 'trash')
+    await mkdir(trashDirectory, { recursive: true })
+
+    const timestamp = toBeijingIso().replace(/[:.]/g, '-')
+    let candidate = join(trashDirectory, `${timestamp}-${basename(sourcePath)}`)
+    let suffix = 2
+    while (await this.pathExists(candidate)) {
+      candidate = join(trashDirectory, `${timestamp}-${suffix}-${basename(sourcePath)}`)
+      suffix += 1
+    }
+
+    await rename(sourcePath, candidate)
+    const metadata: TrashMetadata = {
+      originalPath: relative(root, sourcePath).split(sep).join('/'),
+      deletedAt: toBeijingIso()
+    }
+    await writeFile(`${candidate}.json`, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8')
+    return this.snapshot()
+  }
+
+  async listTrash(): Promise<TrashNote[]> {
+    const root = this.requireRoot()
+    const trashDirectory = join(root, '.pkm', 'trash')
+    if (!(await this.pathExists(trashDirectory))) return []
+
+    const entries = await readdir(trashDirectory, { withFileTypes: true })
+    const items = await Promise.all(entries
+      .filter((entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.md')
+      .map(async (entry): Promise<TrashNote> => {
+        const filePath = join(trashDirectory, entry.name)
+        const info = await stat(filePath)
+        const metadata = await this.readTrashMetadata(`${filePath}.json`)
+        const content = await readFile(filePath, 'utf8')
+        const titleFromContent = /^title[ \t]*:[ \t]*(.+)$/m.exec(content)?.[1]?.trim()
+        const fallbackTitle = titleFromContent || basename(entry.name, '.md')
+        const originalPath = metadata?.originalPath || `${fallbackTitle}.md`
+        return {
+          id: entry.name,
+          title: basename(originalPath, extname(originalPath)),
+          originalPath,
+          deletedAt: metadata?.deletedAt || toBeijingIso(info.mtime)
+        }
+      }))
+
+    return items.sort((left, right) => right.deletedAt.localeCompare(left.deletedAt))
+  }
+
+  async restoreTrash(id: string): Promise<NoteDocument> {
+    const root = this.requireRoot()
+    if (!id || basename(id) !== id || extname(id).toLowerCase() !== '.md') {
+      throw new VaultError('E_INVALID_TRASH_ID', '回收站项目无效。')
+    }
+
+    const trashDirectory = join(root, '.pkm', 'trash')
+    const sourcePath = join(trashDirectory, id)
+    const metadataPath = `${sourcePath}.json`
+    const content = await readFile(sourcePath, 'utf8')
+    const metadata = await this.readTrashMetadata(metadataPath)
+    const titleFromContent = /^title[ \t]*:[ \t]*(.+)$/m.exec(content)?.[1]?.trim() || basename(id, '.md')
+    const preferredRelativePath = metadata?.originalPath || `${titleFromContent}.md`
+    let targetPath = this.resolveNotePath(preferredRelativePath)
+    const targetDirectory = dirname(targetPath)
+    await mkdir(targetDirectory, { recursive: true })
+
+    if (await this.pathExists(targetPath)) {
+      const extension = extname(targetPath)
+      const stem = basename(targetPath, extension)
+      let suffix = 2
+      do {
+        targetPath = join(targetDirectory, `${stem} 恢复 ${suffix}${extension}`)
+        suffix += 1
+      } while (await this.pathExists(targetPath))
+    }
+
+    await rename(sourcePath, targetPath)
+    try {
+      await unlink(metadataPath)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const restoredRelativePath = relative(root, targetPath).split(sep).join('/')
+    return this.toDocument(restoredRelativePath, content)
+  }
+
+  async searchNotes(query: string): Promise<SearchNoteMatch[]> {
+    const normalized = normalizeSearchText(query.trim())
+    if (!normalized) return []
+
+    const snapshot = await this.snapshot()
+    const paths = this.collectNotePaths(snapshot.tree)
+    const matches: SearchNoteMatch[] = []
+    await Promise.all(paths.map(async (relativePath) => {
+      const content = await readFile(this.resolveNotePath(relativePath), 'utf8')
+      const snippet = createSearchSnippet(content, normalized)
+      if (snippet) matches.push({ relativePath, snippet })
+    }))
+    return matches.sort((left, right) => left.relativePath.localeCompare(right.relativePath, 'zh-CN'))
+  }
+
   private async ensureMetadata(): Promise<void> {
     const root = this.requireRoot()
     const pkmDir = join(root, '.pkm')
@@ -115,7 +299,7 @@ export class VaultService {
         vaultId: randomUUID(),
         displayName: basename(root),
         createdAt: toBeijingIso(),
-        appVersionCreated: '0.1.0'
+        appVersionCreated: '0.2.4'
       }
       await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     }
@@ -158,6 +342,12 @@ export class VaultService {
     return target
   }
 
+  private collectNotePaths(nodes: FileTreeNode[]): string[] {
+    return nodes.flatMap((node) => node.type === 'note'
+      ? [node.relativePath]
+      : this.collectNotePaths(node.children ?? []))
+  }
+
   private requireRoot(): string {
     if (!this.vaultRoot) throw new VaultError('E_NO_VAULT', '请先选择知识库。')
     return this.vaultRoot
@@ -175,6 +365,17 @@ export class VaultService {
       return true
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  }
+
+  private async readTrashMetadata(path: string): Promise<TrashMetadata | null> {
+    try {
+      const value = JSON.parse(await readFile(path, 'utf8')) as Partial<TrashMetadata>
+      if (typeof value.originalPath !== 'string' || typeof value.deletedAt !== 'string') return null
+      return { originalPath: value.originalPath, deletedAt: value.deletedAt }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) return null
       throw error
     }
   }
